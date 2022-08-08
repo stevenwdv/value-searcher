@@ -6,11 +6,13 @@
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint ."
 	},
 	"dependencies": {
+		"busboy": "^1.6.0",
 		"crc": "^4.1.1",
 		"html-entities": "^2.3.3",
 		"lz-string": "^1.4.4"
 	},
 	"devDependencies": {
+		"@types/busboy": "^1.5.0",
 		"@types/lz-string": "^1.3.34",
 		"@types/node": "^18.0.3",
 		"@typescript-eslint/eslint-plugin": "^5.30.6",

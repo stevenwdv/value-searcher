@@ -3,9 +3,11 @@
 import assert from 'node:assert';
 import crypto from 'node:crypto';
 import querystring from 'node:querystring';
+import {consumers, PassThrough, Readable} from 'node:stream';
 import {promisify} from 'node:util';
 import zlib from 'node:zlib';
 
+import busboy from 'busboy';
 import * as htmlEntities from 'html-entities';
 import lzString from 'lz-string';
 
@@ -13,8 +15,10 @@ import {regExpEscape} from './utils';
 
 type Buffers = AsyncGenerator<Buffer, void, undefined>;
 
+/**
+ * Strings are UTF-8 encoded
+ */
 export interface ValueTransformer {
-
 	encodings?(value: Buffer): Buffers;
 
 	extractDecode?(value: Buffer, minLength: number): Buffers;
@@ -142,7 +146,7 @@ export class UriTransform implements ValueTransformer {
 		// Match all possible strings of URL units excluding splitters /&= (https://url.spec.whatwg.org/#url-units)
 		const uriComponentRegex = /\b(?:[a-fA-F0-9!$'()*+,.:;?@_~\xA0-\u{10FFFD}-]|%[a-fA-F0-9]{2})+\b/ug;
 		for (const [match] of value.toString().matchAll(uriComponentRegex))
-			// Match should include at least one percent-encoded character, otherwise decoding is unnecessary
+			  // Match should include at least one percent-encoded character, otherwise decoding is unnecessary
 			if (match!.length >= minLength && /%[a-fA-F0-9]{2}/.test(match!))
 				yield Buffer.from(querystring.unescape(match!));
 	}
@@ -166,7 +170,7 @@ export class HtmlEntitiesTransform implements ValueTransformer {
 	async* encodings(value: Buffer): Buffers {
 		yield Buffer.from(htmlEntities.encode(value.toString())
 			  .replaceAll('&quot;', '"')
-			  .replaceAll('&apos;', "'"));
+			  .replaceAll('&apos;', '\''));
 	}
 
 	async* extractDecode(value: Buffer): Buffers {
@@ -189,8 +193,8 @@ export class LZStringTransform implements ValueTransformer {
 		for (const str of strs)
 			for (const variant of this.variants) {
 				if (variant === 'ucs2')
-					// Compress to string with 16 significant bits per char
-					// Will have bytes swapped compared to compressToUint8Array
+					  // Compress to string with 16 significant bits per char
+					  // Will have bytes swapped compared to compressToUint8Array
 					yield Buffer.from(lzString.compress(str), 'ucs2');
 				else yield Buffer.from(lzString[({
 					'bytes': 'compressToUint8Array', // Compress to bytes
@@ -268,5 +272,37 @@ export class CompressionTransform implements ValueTransformer {
 				/*ignored*/
 			}
 		}
+	}
+}
+
+export class FormDataTransformer implements ValueTransformer {
+	toString() {return 'form-data';}
+
+	async* extractDecode(value: Buffer): Buffers {
+		const newlineOffset = value.indexOf('\r\n');
+		if (newlineOffset === -1) return;
+
+		// Match MIME boundary line (https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.1)
+		const boundaryRegex = /^--([0-9a-zA-Z'()+_,./:=? -]{0,69}[0-9a-zA-Z'()+_,./:=?-])\s*$/;
+		// Avoid converting the whole buffer to string
+		const match         = value.subarray(0, newlineOffset).toString().match(boundaryRegex);
+		if (!match) return;
+
+		const boundary = match[1]!;
+
+		const bufferPasser = new PassThrough({objectMode: true});
+
+		// Extract part contents
+		// We do not handle `Content-Transfer-Encoding: quoted-printable`
+		// because it is deprecated for forms anyway (https://datatracker.ietf.org/doc/html/rfc7578#section-4.7)
+		Readable.from(value)
+			  .pipe(busboy({headers: {'content-type': `multipart/form-data; boundary="${boundary}"`}})
+					.on('error', () => {/*ignore*/})
+					.on('field', (_fieldName, fieldValue) =>
+						  bufferPasser.write(Buffer.from(fieldValue)))
+					.on('file', (_fieldName, stream) => bufferPasser.write(consumers.buffer(stream)))
+					.on('close', () => bufferPasser.end()));
+
+		yield* bufferPasser;
 	}
 }

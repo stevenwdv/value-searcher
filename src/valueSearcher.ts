@@ -5,6 +5,7 @@ import {crc32} from 'crc';
 import {
 	Base64Transform,
 	CompressionTransform,
+	FormDataTransformer,
 	HashTransform,
 	HexTransform,
 	HtmlEntitiesTransform,
@@ -99,6 +100,7 @@ export const defaultTransformers: ValueTransformer[] = [
 	new UriTransform(),
 	new JsonStringTransform(),
 	new HtmlEntitiesTransform(),
+	new FormDataTransformer(),
 
 	new LZStringTransform(),
 	new CompressionTransform(),
