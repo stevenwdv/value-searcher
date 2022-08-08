@@ -1,0 +1,39 @@
+﻿root: true
+parser: "@typescript-eslint/parser"
+plugins: [ "@typescript-eslint" ]
+
+overrides:
+  - files: [ "*.ts" ]
+    excludedFiles: [ "*.d.ts" ]
+    parserOptions:
+      project: ./tsconfig.json
+    extends:
+      - eslint:recommended
+      - plugin:@typescript-eslint/eslint-recommended
+      - plugin:@typescript-eslint/recommended
+      - plugin:@typescript-eslint/recommended-requiring-type-checking
+      - plugin:@typescript-eslint/strict
+      - plugin:eslint-comments/recommended
+    rules:
+      no-constant-condition:
+        - error
+        - checkLoops: false
+      no-debugger: warn  # no error
+      no-inner-declarations: off  # allow functions inside blocks
+      no-loss-of-precision: warn
+      no-promise-executor-return: off
+      no-mixed-spaces-and-tabs: off  # allow smart tabs
+      quotes:
+        - warn
+        - single
+        - avoidEscape: true
+      "@typescript-eslint/explicit-module-boundary-types": off
+      "@typescript-eslint/no-non-null-assertion": off
+      "@typescript-eslint/no-unnecessary-condition":
+        - warn
+        - allowConstantLoopConditions: true
+      "@typescript-eslint/require-await": warn
+      eslint-comments/no-unused-disable: warn
+      eslint-comments/disable-enable-pair:
+        - error
+        - allowWholeFile: true
