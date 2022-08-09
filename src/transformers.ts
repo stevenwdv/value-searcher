@@ -256,7 +256,7 @@ export class CompressionTransform implements ValueTransformer {
 				yield promisify(zlib.unzip)(value);
 				return;
 			} catch {
-				/*ignored*/
+				/*ignore*/
 			}
 		}
 
@@ -269,7 +269,7 @@ export class CompressionTransform implements ValueTransformer {
 			try {
 				yield promisify(decompress)(value);
 			} catch {
-				/*ignored*/
+				/*ignore*/
 			}
 		}
 	}

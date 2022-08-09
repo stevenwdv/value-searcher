@@ -43,7 +43,6 @@ export class ValueSearcher {
 		}
 	}
 
-	//TODO handle form data
 	async findValueIn(
 		  haystack: Buffer, maxDecodeLayers = 10, decoders = this.#transformers): Promise<ValueTransformer[] | null> {
 		this.#haystackChecksums.clear();
