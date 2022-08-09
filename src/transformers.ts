@@ -21,6 +21,9 @@ type Buffers = AsyncGenerator<Buffer, void, undefined>;
 export interface ValueTransformer {
 	encodings?(value: Buffer): Buffers;
 
+	/**
+	 * @param minLength Minimal length of encoded substring to process (not of the decoded value)
+	 */
 	extractDecode?(value: Buffer, minLength: number): Buffers;
 }
 
@@ -56,6 +59,7 @@ export class Base64Transform implements ValueTransformer {
 		Base64Transform.urlSafeDialect,
 		Base64Transform.altUrlSafeDialect,
 	])) {
+		assert(dialects.size);
 		this.#findBase64Regexes = Object.fromEntries([...dialects]
 			  // Skip padded versions if non-padded versions exist
 			  .filter(dialect => !(dialect.length === 3 && dialects.has(dialect.substring(0, 2))))
@@ -65,7 +69,7 @@ export class Base64Transform implements ValueTransformer {
 				  const escapedDigits  = `A-Za-z0-9${regExpEscape(digit62! + digit63!)}`,
 				        escapedPadding = padding ? regExpEscape(padding) : undefined;
 				  return [dialect, new RegExp(escapedPadding
-					    // Encoded string is padded to make the length a multiple of 4
+						// Encoded string is padded to make the length a multiple of 4
 					    ? String.raw`(?<![${escapedDigits}])(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))(?![${escapedDigits}${escapedPadding}])`
 					    : String.raw`(?<![${escapedDigits}])[${escapedDigits}]+(?!${escapedDigits})`, 'g')];
 			  }));
@@ -145,8 +149,8 @@ export class HexTransform implements ValueTransformer {
 			        this.variants.has('lowercase')
 					      ? this.variants.has('uppercase')
 						        ? /\b(?:(?:[a-f0-9]{2})+|(?:[A-F0-9]{2})+)\b/g
-						        : /\b(?:[a-f0-9]{2})+|\b/g
-					      : /\b(?:[A-F0-9]{2})+|\b/g;
+						        : /\b(?:[a-f0-9]{2})+\b/g
+					      : /\b(?:[A-F0-9]{2})+\b/g;
 		for (const [match] of value.toString().matchAll(hexRegex))
 			if (match!.length >= minLength) yield Buffer.from(match!, 'hex');
 	}
@@ -156,12 +160,13 @@ export class UriTransform implements ValueTransformer {
 	toString() {return 'uri' as const;}
 
 	async* encodings(value: Buffer): Buffers {
+		// Not suited for encoding binary data, e.g. decodeURIComponent('\xda') === '%C3%9A'
 		yield Buffer.from(querystring.escape(value.toString()));
 	}
 
 	async* extractDecode(value: Buffer, minLength: number): Buffers {
-		// Match all possible strings of URL units excluding splitters /&= (https://url.spec.whatwg.org/#url-units)
-		const uriComponentRegex = /\b(?:[a-fA-F0-9!$'()*+,.:;?@_~\xA0-\u{10FFFD}-]|%[a-fA-F0-9]{2})+\b/ug;
+		// Match all possible strings of URL units excluding splitters /&=? (https://url.spec.whatwg.org/#url-units)
+		const uriComponentRegex = /(?<![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])(?:[a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}-]|%[a-fA-F0-9]{2})+(?![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])/ug;
 		for (const [match] of value.toString().matchAll(uriComponentRegex))
 			  // Match should include at least one percent-encoded character, otherwise decoding is unnecessary
 			if (match!.length >= minLength && /%[a-fA-F0-9]{2}/.test(match!))
@@ -229,7 +234,9 @@ export class FormDataTransformer implements ValueTransformer {
 
 export class LZStringTransform implements ValueTransformer {
 	constructor(public readonly variants: ReadonlySet<'bytes' | 'ucs2' | 'utf16' | 'base64' | 'uri'>
-		  = new Set(['bytes', 'ucs2', 'utf16', 'base64', 'uri'])) {}
+		  = new Set(['bytes', 'ucs2', 'utf16', 'base64', 'uri'])) {
+		assert(variants.size);
+	}
 
 	toString() {return 'lz-string' as const;}
 
@@ -286,7 +293,9 @@ export class LZStringTransform implements ValueTransformer {
 
 export class CompressionTransform implements ValueTransformer {
 	constructor(public readonly formats: ReadonlySet<'gzip' | 'deflate' | 'deflate-raw' | 'brotli'> =
-		  new Set(['gzip', 'deflate', 'deflate-raw', 'brotli'])) {}
+		  new Set(['gzip', 'deflate', 'deflate-raw', 'brotli'])) {
+		assert(formats.size);
+	}
 
 	toString() {return 'compress' as const;}
 
