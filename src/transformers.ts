@@ -25,12 +25,14 @@ export interface ValueTransformer {
 }
 
 export class HashTransform implements ValueTransformer {
-	constructor(public readonly algorithm: string) {}
+	constructor(public readonly algorithm: string, public readonly outputBytes?: number) {}
 
-	toString() {return this.algorithm;}
+	toString() {
+		return this.outputBytes ? `${this.algorithm}/${this.outputBytes}` : this.algorithm;
+	}
 
 	async* encodings(value: Buffer): Buffers {
-		yield crypto.createHash(this.algorithm)
+		yield crypto.createHash(this.algorithm, {outputLength: this.outputBytes})
 			  .update(value)
 			  .digest();
 	}
@@ -63,13 +65,13 @@ export class Base64Transform implements ValueTransformer {
 				  const escapedDigits  = `A-Za-z0-9${regExpEscape(digit62! + digit63!)}`,
 				        escapedPadding = padding ? regExpEscape(padding) : undefined;
 				  return [dialect, new RegExp(escapedPadding
-						// Encoded string is padded to make the length a multiple of 4
-						? String.raw`\b(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))\b`
-						: String.raw`\b[${escapedDigits}]+\b` /*TODO? enforce padding if present*/, 'g')];
+					    // Encoded string is padded to make the length a multiple of 4
+					    ? String.raw`(?<![${escapedDigits}])(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))(?![${escapedDigits}${escapedPadding}])`
+					    : String.raw`(?<![${escapedDigits}])[${escapedDigits}]+(?!${escapedDigits})`, 'g')];
 			  }));
 	}
 
-	toString() {return 'base64';}
+	toString() {return 'base64' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		const base64 = value.toString('base64');
@@ -95,8 +97,23 @@ export class Base64Transform implements ValueTransformer {
 				const [, , padding] = dialect;
 				if (padding) match = match!.replaceAll(padding, '');
 
+				// Regular Base64 discards any bits that do not fit inside the rounded down number of bytes
+				// e.g. Buffer.from('/', 'base64').length === 0
+				// But this is a problem for lz-string's compressToBase64 in some cases,
+				// e.g. lz.compressToBase64('ssagwefhbyigadÿÿÿÿÿ').endsWith('Q===')
+				// The code below checks if '1' bits were dropped and if so it appends extra '0' bits
+				// to force the byte to be included
+				if (match!.length % 4 !== 0) {
+					const decodeChar               = (c: string) =>
+						  `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789${dialect}`.indexOf(c);
+					const bitsDroppedFromLastDigit = match!.length * 6 % 8;
+					const droppedBitsMask          = (1 << bitsDroppedFromLastDigit) - 1;
+					const overflow                 = !!(decodeChar(match!.at(-1)!) & droppedBitsMask);
+					if (overflow) match += 'A'; // Append '0' bits
+				}
+
 				if (dialect.startsWith('+/')) yield Buffer.from(match!, 'base64');
-				if (dialect.startsWith('-_')) yield Buffer.from(match!, 'base64url');
+				else if (dialect.startsWith('-_')) yield Buffer.from(match!, 'base64url');
 				else {
 					// Replace last digits with regular '+/' and decode
 					const [digit62, digit63] = dialect;
@@ -114,7 +131,7 @@ export class HexTransform implements ValueTransformer {
 		assert(variants.size);
 	}
 
-	toString() {return 'hex';}
+	toString() {return 'hex' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		const hex = value.toString('hex');
@@ -136,7 +153,7 @@ export class HexTransform implements ValueTransformer {
 }
 
 export class UriTransform implements ValueTransformer {
-	toString() {return 'uri';}
+	toString() {return 'uri' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		yield Buffer.from(querystring.escape(value.toString()));
@@ -153,7 +170,7 @@ export class UriTransform implements ValueTransformer {
 }
 
 export class JsonStringTransform implements ValueTransformer {
-	toString() {return 'json-string';}
+	toString() {return 'json-string' as const;}
 
 	async* extractDecode(value: Buffer, minLength: number): Buffers {
 		// Try to match all JSON strings (including quotes "") (https://www.json.org/json-en.html#grammar)
@@ -165,7 +182,7 @@ export class JsonStringTransform implements ValueTransformer {
 }
 
 export class HtmlEntitiesTransform implements ValueTransformer {
-	toString() {return 'html-entities';}
+	toString() {return 'html-entities' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		yield Buffer.from(htmlEntities.encode(value.toString())
@@ -178,11 +195,43 @@ export class HtmlEntitiesTransform implements ValueTransformer {
 	}
 }
 
+export class FormDataTransformer implements ValueTransformer {
+	toString() {return 'form-data' as const;}
+
+	async* extractDecode(value: Buffer): Buffers {
+		const newlineOffset = value.indexOf('\r\n');
+		if (newlineOffset === -1) return;
+
+		// Match MIME boundary line (https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.1)
+		const boundaryRegex = /^--([0-9a-zA-Z'()+_,./:=? -]{0,69}[0-9a-zA-Z'()+_,./:=?-])\s*$/;
+		// Avoid converting the whole buffer to string
+		const match         = value.subarray(0, newlineOffset).toString().match(boundaryRegex);
+		if (!match) return;
+
+		const boundary = match[1]!;
+
+		const bufferPasser = new PassThrough({objectMode: true});
+
+		// Extract part contents
+		// We do not handle `Content-Transfer-Encoding: quoted-printable`
+		// because it is deprecated for forms anyway (https://datatracker.ietf.org/doc/html/rfc7578#section-4.7)
+		Readable.from(value)
+			  .pipe(busboy({headers: {'content-type': `multipart/form-data; boundary="${boundary}"`}})
+					.on('error', () => {/*ignore*/})
+					.on('field', (_fieldName, fieldValue) =>
+						  bufferPasser.write(Buffer.from(fieldValue)))
+					.on('file', (_fieldName, stream) => bufferPasser.write(consumers.buffer(stream)))
+					.on('close', () => bufferPasser.end()));
+
+		yield* bufferPasser;
+	}
+}
+
 export class LZStringTransform implements ValueTransformer {
 	constructor(public readonly variants: ReadonlySet<'bytes' | 'ucs2' | 'utf16' | 'base64' | 'uri'>
 		  = new Set(['bytes', 'ucs2', 'utf16', 'base64', 'uri'])) {}
 
-	toString() {return 'lz-string';}
+	toString() {return 'lz-string' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		const strs = [
@@ -239,7 +288,7 @@ export class CompressionTransform implements ValueTransformer {
 	constructor(public readonly formats: ReadonlySet<'gzip' | 'deflate' | 'deflate-raw' | 'brotli'> =
 		  new Set(['gzip', 'deflate', 'deflate-raw', 'brotli'])) {}
 
-	toString() {return 'compress';}
+	toString() {return 'compress' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		yield* [...this.formats].map(format => promisify({
@@ -272,37 +321,5 @@ export class CompressionTransform implements ValueTransformer {
 				/*ignore*/
 			}
 		}
-	}
-}
-
-export class FormDataTransformer implements ValueTransformer {
-	toString() {return 'form-data';}
-
-	async* extractDecode(value: Buffer): Buffers {
-		const newlineOffset = value.indexOf('\r\n');
-		if (newlineOffset === -1) return;
-
-		// Match MIME boundary line (https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.1)
-		const boundaryRegex = /^--([0-9a-zA-Z'()+_,./:=? -]{0,69}[0-9a-zA-Z'()+_,./:=?-])\s*$/;
-		// Avoid converting the whole buffer to string
-		const match         = value.subarray(0, newlineOffset).toString().match(boundaryRegex);
-		if (!match) return;
-
-		const boundary = match[1]!;
-
-		const bufferPasser = new PassThrough({objectMode: true});
-
-		// Extract part contents
-		// We do not handle `Content-Transfer-Encoding: quoted-printable`
-		// because it is deprecated for forms anyway (https://datatracker.ietf.org/doc/html/rfc7578#section-4.7)
-		Readable.from(value)
-			  .pipe(busboy({headers: {'content-type': `multipart/form-data; boundary="${boundary}"`}})
-					.on('error', () => {/*ignore*/})
-					.on('field', (_fieldName, fieldValue) =>
-						  bufferPasser.write(Buffer.from(fieldValue)))
-					.on('file', (_fieldName, stream) => bufferPasser.write(consumers.buffer(stream)))
-					.on('close', () => bufferPasser.end()));
-
-		yield* bufferPasser;
 	}
 }
