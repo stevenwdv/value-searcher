@@ -108,13 +108,15 @@ export class Base64Transform implements ValueTransformer {
 				// e.g. lz.compressToBase64('ssagwefhbyigadÿÿÿÿÿ').endsWith('Q===')
 				// The code below checks if '1' bits were dropped and if so it appends extra '0' bits
 				// to force the byte to be included
+				// It also adds '0' bits if we have a case like 'A===' because this will not occur when encoding bytes
+				// and otherwise the extra digit is ignored
 				if (match!.length % 4 !== 0) {
 					const decodeChar               = (c: string) =>
 						  `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789${dialect}`.indexOf(c);
 					const bitsDroppedFromLastDigit = match!.length * 6 % 8;
 					const droppedBitsMask          = (1 << bitsDroppedFromLastDigit) - 1;
 					const overflow                 = !!(decodeChar(match!.at(-1)!) & droppedBitsMask);
-					if (overflow) match += 'A'; // Append '0' bits
+					if (overflow || match!.length % 4 === 1) match += 'A'; // Append '0' bits
 				}
 
 				if (dialect.startsWith('+/')) yield Buffer.from(match!, 'base64');
@@ -278,6 +280,7 @@ export class LZStringTransform implements ValueTransformer {
 
 		if (this.variants.has('bytes')) {
 			// Pad value to an even number of bytes
+			// Trailing zeros may be lost with compressToBase64/compressToEncodedURIComponent
 			let evenValue = value;
 			if (value.length % 2 !== 0) {
 				evenValue = Buffer.alloc(value.length + 1);
@@ -287,6 +290,13 @@ export class LZStringTransform implements ValueTransformer {
 			if (res) {
 				yield Buffer.from(res); // For compressed text
 				yield Buffer.from(res, 'binary'); // For compressed binary data
+			}
+		}
+		if (this.variants.has('ucs2')) {
+			const res = lzString.decompress(value.toString('ucs2'));
+			if (res) {
+				yield Buffer.from(res);
+				yield Buffer.from(res, 'binary');
 			}
 		}
 		if (this.variants.has('utf16')) {

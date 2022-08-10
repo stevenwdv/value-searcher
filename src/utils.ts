@@ -53,10 +53,11 @@ export function tryAdd<T>(set: Set<T>, value: T): boolean {
 }
 
 export type ObjectStream<Stream extends Readable | Writable, ObjType> =
-	  Omit<Stream, 'read' | 'write' | 'end'>
+	  Omit<Stream, 'read' | 'write' | 'end' | typeof Symbol.asyncIterator>
 	  & (Stream extends Readable
 	  ? {
 		  read(): ObjType, push(obj: ObjType): boolean;
+		  [Symbol.asyncIterator](): AsyncIterableIterator<ObjType>;
 	  } : unknown)
 	  & (Stream extends Writable
 	  ? {
