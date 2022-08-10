@@ -1,25 +1,35 @@
+import {Readable, Writable} from 'node:stream';
+
 /**
  * @author https://stackoverflow.com/a/30851002
  */
 export function regExpEscape(str: string) {
-	return str.replace(/[-[\]{}()*+!<=:?./\\^$|#\s,]/g, '\\$&');
+	return str.replaceAll(/[-[\]{}()*+!<=:?./\\^$|#\s,]/g, '\\$&');
+}
+
+/**
+ * Template tag, strips indents from the template string, excluding content of placeholders
+ */
+export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
+	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
+	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
+	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
 }
 
 export function raceWithCondition<T>(
 	  promises: Iterable<T | PromiseLike<T>>,
-	  condition: (val: T) => boolean | PromiseLike<boolean>
+	  condition: (val: T) => boolean | PromiseLike<boolean>,
 ): Promise<T | undefined> {
-	return new Promise((resolve, reject) => {
-		void Promise.allSettled([...promises].map(async p => {
-			// Calling resolve/reject multiple times does not do anything
-			try {
-				const res = await p;
-				if (await condition(res)) resolve(res);
-			} catch (err) {
-				reject(err);
-			}
-		})).then(() => resolve(undefined));
-	});
+	return new Promise((resolve, reject) =>
+		  void Promise.allSettled([...promises].map(async p => {
+			  // Calling resolve/reject multiple times does not do anything
+			  try {
+				  const res = await p;
+				  if (await condition(res)) resolve(res);
+			  } catch (err) {
+				  reject(err);
+			  }
+		  })).then(() => resolve(undefined)));
 }
 
 export async function asyncGeneratorCollect<T>(gen: AsyncGenerator<T, void, undefined>): Promise<T[]> {
@@ -41,3 +51,16 @@ export function tryAdd<T>(set: Set<T>, value: T): boolean {
 	set.add(value);
 	return true;
 }
+
+export type ObjectStream<Stream extends Readable | Writable, ObjType> =
+	  Omit<Stream, 'read' | 'write' | 'end'>
+	  & (Stream extends Readable
+	  ? {
+		  read(): ObjType, push(obj: ObjType): boolean;
+	  } : unknown)
+	  & (Stream extends Writable
+	  ? {
+		  write(obj: ObjType, callback?: (error: Error | null | undefined) => void): boolean;
+		  end(obj: ObjType, callback?: () => void): Stream;
+		  end(callback?: () => void): Stream;
+	  } : unknown);

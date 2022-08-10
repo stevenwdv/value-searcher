@@ -3,7 +3,8 @@
 import assert from 'node:assert';
 import crypto from 'node:crypto';
 import querystring from 'node:querystring';
-import {consumers, PassThrough, Readable} from 'node:stream';
+import {PassThrough, Readable} from 'node:stream';
+import consumers from 'node:stream/consumers';
 import {promisify} from 'node:util';
 import zlib from 'node:zlib';
 
@@ -11,7 +12,7 @@ import busboy from 'busboy';
 import * as htmlEntities from 'html-entities';
 import lzString from 'lz-string';
 
-import {regExpEscape} from './utils';
+import {ObjectStream, regExpEscape} from './utils';
 
 type Buffers = AsyncGenerator<Buffer, void, undefined>;
 
@@ -190,7 +191,9 @@ export class HtmlEntitiesTransform implements ValueTransformer {
 	toString() {return 'html-entities' as const;}
 
 	async* encodings(value: Buffer): Buffers {
-		yield Buffer.from(htmlEntities.encode(value.toString())
+		const encoded = htmlEntities.encode(value.toString());
+		yield Buffer.from(encoded);
+		yield Buffer.from(encoded
 			  .replaceAll('&quot;', '"')
 			  .replaceAll('&apos;', '\''));
 	}
@@ -200,7 +203,7 @@ export class HtmlEntitiesTransform implements ValueTransformer {
 	}
 }
 
-export class FormDataTransformer implements ValueTransformer {
+export class FormDataTransform implements ValueTransformer {
 	toString() {return 'form-data' as const;}
 
 	async* extractDecode(value: Buffer): Buffers {
@@ -215,20 +218,25 @@ export class FormDataTransformer implements ValueTransformer {
 
 		const boundary = match[1]!;
 
-		const bufferPasser = new PassThrough({objectMode: true});
+		const bufferPromisePasser: ObjectStream<PassThrough, Buffer | Promise<Buffer>> = new PassThrough({objectMode: true});
 
 		// Extract part contents
 		// We do not handle `Content-Transfer-Encoding: quoted-printable`
 		// because it is deprecated for forms anyway (https://datatracker.ietf.org/doc/html/rfc7578#section-4.7)
 		Readable.from(value)
 			  .pipe(busboy({headers: {'content-type': `multipart/form-data; boundary="${boundary}"`}})
-					.on('error', () => {/*ignore*/})
+					.on('error', () => bufferPromisePasser.end())
 					.on('field', (_fieldName, fieldValue) =>
-						  bufferPasser.write(Buffer.from(fieldValue)))
-					.on('file', (_fieldName, stream) => bufferPasser.write(consumers.buffer(stream)))
-					.on('close', () => bufferPasser.end()));
+						  bufferPromisePasser.write(Buffer.from(fieldValue)))
+					.on('file', (_fieldName, stream) =>
+						  bufferPromisePasser.write(consumers.buffer(stream)))
+					.on('close', () => bufferPromisePasser.end()));
 
-		yield* bufferPasser;
+		try {
+			yield* bufferPromisePasser;
+		} catch {
+			/*ignore errors arising while reading files*/
+		}
 	}
 }
 
