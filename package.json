@@ -7,6 +7,9 @@
 		"lint-all": "npm run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint .",
 		"test": "nyc mocha"
 	},
+	"engines": {
+		"node": ">=16.7"
+	},
 	"dependencies": {
 		"busboy": "^1.6.0",
 		"crc": "^4.1.1",
