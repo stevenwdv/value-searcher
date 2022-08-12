@@ -1,3 +1,4 @@
 # TypeScript testing
 require: [ ts-node/register ]
 spec: ./test/src/**/*.spec.ts
+timeout: 5000

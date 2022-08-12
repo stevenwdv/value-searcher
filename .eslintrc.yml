@@ -1,6 +1,8 @@
 ﻿root: true
 parser: "@typescript-eslint/parser"
-plugins: [ "@typescript-eslint" ]
+plugins:
+  - "@typescript-eslint"
+  - deprecation
 
 overrides:
   - files: [ "*.ts" ]
@@ -37,3 +39,4 @@ overrides:
       eslint-comments/disable-enable-pair:
         - error
         - allowWholeFile: true
+      deprecation/deprecation: warn

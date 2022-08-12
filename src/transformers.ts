@@ -2,7 +2,6 @@
 
 import assert from 'node:assert';
 import crypto from 'node:crypto';
-import querystring from 'node:querystring';
 import {PassThrough, Readable} from 'node:stream';
 import consumers from 'node:stream/consumers';
 import {promisify} from 'node:util';
@@ -70,7 +69,7 @@ export class Base64Transform implements ValueTransformer {
 				  const escapedDigits  = `A-Za-z0-9${regExpEscape(digit62! + digit63!)}`,
 				        escapedPadding = padding ? regExpEscape(padding) : undefined;
 				  return [dialect, new RegExp(escapedPadding
-						// Encoded string is padded to make the length a multiple of 4
+					    // Encoded string is padded to make the length a multiple of 4
 					    ? String.raw`(?<![${escapedDigits}])(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))(?![${escapedDigits}${escapedPadding}])`
 					    : String.raw`(?<![${escapedDigits}])[${escapedDigits}]+(?!${escapedDigits})`, 'g')];
 			  }));
@@ -159,21 +158,37 @@ export class HexTransform implements ValueTransformer {
 	}
 }
 
+//TODO? also use legacy `escape` & `unescape`
 export class UriTransform implements ValueTransformer {
 	toString() {return 'uri' as const;}
 
 	async* encodings(value: Buffer): Buffers {
 		// Not suited for encoding binary data, e.g. decodeURIComponent('\xda') === '%C3%9A'
-		yield Buffer.from(querystring.escape(value.toString()));
+		// and encodeURIComponent('\uda00') throws
+		try {
+			const encoded = encodeURIComponent(value.toString());
+			yield Buffer.from(encoded);
+			yield Buffer.from(encoded.replaceAll('%20', '+'));
+		} catch (err) {
+			if (err instanceof URIError) {
+				/*ignore*/
+			} else throw err;
+		}
 	}
 
 	async* extractDecode(value: Buffer, minLength: number): Buffers {
 		// Match all possible strings of URL units excluding splitters /&=? (https://url.spec.whatwg.org/#url-units)
 		const uriComponentRegex = /(?<![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])(?:[a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}-]|%[a-fA-F0-9]{2})+(?![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])/ug;
 		for (const [match] of value.toString().matchAll(uriComponentRegex))
-			  // Match should include at least one percent-encoded character, otherwise decoding is unnecessary
-			if (match!.length >= minLength && /%[a-fA-F0-9]{2}/.test(match!))
-				yield Buffer.from(querystring.unescape(match!));
+			  // Match should include at least one percent-encoded character or +, otherwise decoding is unnecessary
+			if (match!.length >= minLength && /%[a-fA-F0-9]{2}|\+/.test(match!))
+				try {
+					yield Buffer.from(decodeURIComponent(match!.replaceAll('+', '%20')));
+				} catch (err) {
+					if (err instanceof URIError) {
+						/*ignore*/
+					} else throw err;
+				}
 	}
 }
 
@@ -182,10 +197,12 @@ export class JsonStringTransform implements ValueTransformer {
 
 	async* extractDecode(value: Buffer, minLength: number): Buffers {
 		// Try to match all JSON strings (including quotes "") (https://www.json.org/json-en.html#grammar)
+		// Needs '*' not '+', because otherwise an empty string will start to invert matches
 		// eslint-disable-next-line no-control-regex
-		const jsonStringRegex = /"(?:[^"\\\0-\x1f]|\\(?:["\\/bfnrt]|u[a-fA-F0-9]{4}))+"/g;
+		const jsonStringRegex = /"(?:[^"\\\0-\x1f]|\\(?:["\\/bfnrt]|u[a-fA-F0-9]{4}))*"/g;
 		for (const [match] of value.toString().matchAll(jsonStringRegex))
-			if (match!.length >= minLength) yield Buffer.from(JSON.parse(match!) as string);
+			if (match!.length > 2 && match!.length >= minLength)
+				yield Buffer.from(JSON.parse(match!) as string);
 	}
 }
 
@@ -286,21 +303,36 @@ export class LZStringTransform implements ValueTransformer {
 				evenValue = Buffer.alloc(value.length + 1);
 				value.copy(evenValue);
 			}
-			const res = lzString.decompressFromUint8Array(evenValue);
+			let res;
+			try {
+				res = lzString.decompressFromUint8Array(evenValue);
+			} catch {
+				/*ignore*/
+			}
 			if (res) {
 				yield Buffer.from(res); // For compressed text
 				yield Buffer.from(res, 'binary'); // For compressed binary data
 			}
 		}
 		if (this.variants.has('ucs2')) {
-			const res = lzString.decompress(value.toString('ucs2'));
+			let res;
+			try {
+				res = lzString.decompress(value.toString('ucs2'));
+			} catch {
+				/*ignore*/
+			}
 			if (res) {
 				yield Buffer.from(res);
 				yield Buffer.from(res, 'binary');
 			}
 		}
 		if (this.variants.has('utf16')) {
-			const res = lzString.decompressFromUTF16(value.toString());
+			let res;
+			try {
+				res = lzString.decompressFromUTF16(value.toString());
+			} catch {
+				/*ignore*/
+			}
 			if (res) {
 				yield Buffer.from(res);
 				yield Buffer.from(res, 'binary');

@@ -190,16 +190,23 @@ describe(HexTransform.name, function() {
 
 describe(UriTransform.name, function() {
 	describe(UriTransform.prototype.encodings.name, function() {
-		it('should properly encode', async () =>
+		it('should properly encode with %20 and +', async () =>
 			  expect(await collect(new UriTransform()
 					.encodings(buf('stuff:\n\t/?& 😎'))))
-					.to.deep.equal([buf('stuff%3A%0A%09%2F%3F%26%20%F0%9F%98%8E')]));
+					.to.deep.equalInAnyOrder([
+				  buf('stuff%3A%0A%09%2F%3F%26%20%F0%9F%98%8E'),
+				  buf('stuff%3A%0A%09%2F%3F%26+%F0%9F%98%8E'),
+			  ]));
 	});
 
 	describe(UriTransform.prototype.extractDecode.name, function() {
 		it('can properly decode', async () =>
 			  expect(await collect(new UriTransform()
 					.extractDecode(buf('stuff%3A%0A%09%2F%3F%26%20%F0%9F%98%8E'), 1)))
+					.to.deep.equal([buf('stuff:\n\t/?& 😎')]));
+		it('can properly decode with +', async () =>
+			  expect(await collect(new UriTransform()
+					.extractDecode(buf('stuff%3A%0A%09%2F%3F%26+%F0%9F%98%8E'), 1)))
 					.to.deep.equal([buf('stuff:\n\t/?& 😎')]));
 		it('can decode components starting & ending in non-word char', async () =>
 			  expect(await collect(new UriTransform()
@@ -243,7 +250,7 @@ describe(JsonStringTransform.name, function() {
 		it('can decode a substring', async () =>
 			  expect(await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`json=" hello!\n 😎\t\ud83d\ude0e" yes`), 1)))
-					.to.deep.equal([buf(' hello!\n 😎\t😎')]));
+				    .to.deep.equal([buf(' hello!\n 😎\t😎')]));
 		it('can decode multiple substrings', async () =>
 			  expect(await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`{"prop1\"":" hello!\n 😎\t\ud83d\ude0e", "prop2\n": "another\tone" }`), 1)))
@@ -253,14 +260,18 @@ describe(JsonStringTransform.name, function() {
 				  buf('prop2\n'),
 				  buf('another\tone'),
 			  ]));
+		it('can decode multiple substrings with empty string and escaped quote', async () =>
+			  expect(await collect(new JsonStringTransform()
+					.extractDecode(buf(String.raw`["a","","b","\"","c"]`), 1)))
+					.to.deep.equal([buf('a'), buf('b'), buf('"'), buf('c')]));
 		it('should honor minLength', async () =>
 			  expect(await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`"a\t" "a\tbc" "a\nb"`), 7)))
 					.to.deep.equal([buf('a\tbc')]));
 		it('should not throw on invalid input', async () =>
 			  await collect(new JsonStringTransform()
-					.extractDecode(buf(String.raw`"
-						${'\x01'}"
+					.extractDecode(buf(String.raw`
+						"${'\x01'}"
 						"\u"
 						"\u123"
 						"\"
@@ -376,13 +387,25 @@ describe(FormDataTransform.name, function() {
 					Hello!
 					This is some data 😎
 					-- 'this:=1s/a, (perfectly+legal) --boundary?._--`)))))
-					.to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
+				    .to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
 		it('can handle binary file', async () =>
 			  expect(await collect(new FormDataTransform()
 					.extractDecode(Buffer.concat([
 						buf(crlf(stripIndent`--_boundary
 					    Content-Disposition: form-data; name="form param"; filename="data."
 					    Content-Type: application/octet-stream
+					    
+					    `)), buf('0123456789abcdefda00', 'hex'),
+						buf(crlf(stripIndent`
+					    --_boundary--`)),
+					]))))
+					.to.deep.equal([buf('0123456789abcdefda00', 'hex')]));
+		it('can handle binary file with custom Content-Type', async () =>
+			  expect(await collect(new FormDataTransform()
+					.extractDecode(Buffer.concat([
+						buf(crlf(stripIndent`--_boundary
+					    Content-Disposition: form-data; name="form param"; filename="data."
+					    Content-Type: application/pdf
 					    
 					    `)), buf('0123456789abcdefda00', 'hex'),
 						buf(crlf(stripIndent`
@@ -526,6 +549,8 @@ describe(LZStringTransform.name, function() {
 		const invalidInputs = [
 			buf([]),
 			buf('0123456789abcdefda0000', 'hex'),
+			buf('c9a4d400', 'hex'),
+			buf('a4c900d4', 'hex'),
 		];
 		for (const [name, input] of Object.entries(invalidInputs))
 			it(`does not throw on invalid input: ${name}`, async () =>

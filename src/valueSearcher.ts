@@ -1,5 +1,3 @@
-import Buffer from 'node:buffer';
-
 import {crc32} from 'crc';
 
 import {
@@ -27,25 +25,23 @@ export class ValueSearcher {
 	#needleChecksums   = new Set<number>();
 	#minLength         = Infinity;
 
-	#haystackChecksums = new Set<number>();
-
 	constructor(transformers = defaultTransformers) {
 		this.#transformers = transformers;
 	}
 
-	async addValue(value: Buffer, maxEncodingLayers = 1, encoders = this.#transformers) {
+	async addValue(value: Buffer, maxEncodeLayers = 2, encoders = this.#transformers) {
 		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
 		if (newValue) {
 			const needle = {buffer: value, transformers: []};
 			this.#needles.push(needle);
+			//TODO fix minLength for compression with maxEncodeLayers=0 or compression only in decoders
 			this.#minLength = Math.min(this.#minLength, value.length);
-			if (maxEncodingLayers) await this.#addEncodings(encoders, needle, maxEncodingLayers - 1);
+			if (maxEncodeLayers) await this.#addEncodings(encoders, needle, maxEncodeLayers - 1);
 		}
 	}
 
 	async findValueIn(
 		  haystack: Buffer, maxDecodeLayers = 10, decoders = this.#transformers): Promise<ValueTransformer[] | null> {
-		this.#haystackChecksums.clear();
 		return this.#findValueImpl(haystack, maxDecodeLayers, decoders);
 	}
 
@@ -53,6 +49,7 @@ export class ValueSearcher {
 		  haystack: Buffer, maxDecodeLayers: number,
 		  decoders: ValueTransformer[],
 		  prevTransformers: ValueTransformer[] = [],
+		  haystackChecksums                    = new Set<number>(),
 	): Promise<ValueTransformer[] | null> {
 		for (const {buffer, transformers} of this.#needles)
 			if (haystack.includes(buffer))
@@ -64,9 +61,11 @@ export class ValueSearcher {
 					  const decoded = await asyncGeneratorCollect(decoder.extractDecode!(haystack, this.#minLength));
 					  const transformers = [...prevTransformers, decoder];
 					  return await raceWithCondition(decoded
-								  .filter(decodedBuf => tryAdd(this.#haystackChecksums, crc32(decodedBuf)))
-								  .map(decodedBuf => this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders, transformers)),
-							r => !!r) ?? null;
+								  .filter(decodedBuf => tryAdd(haystackChecksums, crc32(decodedBuf)))
+								  .map(decodedBuf =>
+									    this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
+											  transformers, haystackChecksums)),
+						    r => !!r) ?? null;
 				  }), r => !!r) ?? null;
 		}
 		return null;
@@ -81,8 +80,8 @@ export class ValueSearcher {
 						  .map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
 			  .flat(), this.#needleChecksums, ({buffer}) => crc32(buffer));
 		this.#needles.push(...newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode));
-		this.#minLength = Math.min(this.#minLength, newEncodings.map(({buffer}) => buffer.length)
-			  .reduce((a, b) => a < b ? a : b));
+		this.#minLength = newEncodings.map(({buffer}) => buffer.length)
+			  .reduce((a, b) => Math.min(a, b), this.#minLength);
 		if (maxExtraLayers)
 			await Promise.all(newEncodings.map(needle =>
 				  this.#addEncodings(encoders, needle, maxExtraLayers - 1)));
