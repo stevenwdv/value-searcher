@@ -271,7 +271,7 @@ describe(JsonStringTransform.name, function() {
 		it('should not throw on invalid input', async () =>
 			  await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`
-						"${'\x01'}"
+						"${'0x01'}"
 						"\u"
 						"\u123"
 						"\"
@@ -564,11 +564,12 @@ describe(CompressionTransform.name, function() {
 	describe(CompressionTransform.prototype.encodings.name, function() {
 		it('can compress using all formats', async () =>
 			  expect(await collect(new CompressionTransform()
-					.encodings(buf('0123456789abcdefda00', 'hex'))))
+					.encodings(buf('0123456789abcdefda00', 'hex')))) // [0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,0xda,0x00]
 					.to.deep.equalInAnyOrder([
 				  buf('8b04800123456789abcdefda0003', 'hex'), // brotli
 				  // From (Chrome's) CompressionStream:
-				  buf('1f8b080000000000000a6354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip
+				  buf('1f8b080000000000000a6354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip on Windows
+				  buf('1f8b08000000000000036354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip on Unix
 				  buf('789c6354764def5c7df6fd2d0600148a049b', 'hex'), // deflate
 				  buf('6354764def5c7df6fd2d0600', 'hex'), // deflate-raw
 			  ]));

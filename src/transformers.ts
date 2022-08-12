@@ -350,12 +350,20 @@ export class CompressionTransform implements ValueTransformer {
 	toString() {return 'compress' as const;}
 
 	async* encodings(value: Buffer): Buffers {
-		yield* [...this.formats].map(format => promisify({
-			'gzip': zlib.gzip,
-			'deflate': zlib.deflate,
-			'deflate-raw': zlib.deflateRaw,
-			'brotli': zlib.brotliCompress,
-		}[format])(value));
+		for (const format of this.formats) {
+			if (format === 'gzip') {
+				let gzipped       = await promisify(zlib.gzip)(value);
+				gzipped[9 /*OS*/] = 10; // TOPS-20 (Windows)
+				yield gzipped;
+				gzipped           = Buffer.from(gzipped);
+				gzipped[9 /*OS*/] = 3; // Unix
+				yield gzipped;
+			} else yield promisify({
+				'deflate': zlib.deflate,
+				'deflate-raw': zlib.deflateRaw,
+				'brotli': zlib.brotliCompress,
+			}[format])(value);
+		}
 	}
 
 	async* extractDecode(value: Buffer): Buffers {
