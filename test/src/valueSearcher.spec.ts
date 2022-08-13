@@ -149,7 +149,7 @@ describe(ValueSearcher.name, function() {
 		) {
 			let searcher: ValueSearcher;
 			before(async function() {
-				this.timeout(10_000);
+				this.timeout(20_000);
 				searcher = new ValueSearcher();
 				await searcher.addValue(value, encodingLayers);
 			});
@@ -269,33 +269,20 @@ describe(ValueSearcher.name, function() {
 	});
 
 	it('can search for multiple values', async () => {
+		const value1 = buf('first'),
+		      value2 = buf('second1234567890');
+
 		async function makeSearcher() {
 			const searcher = new ValueSearcher();
-			await searcher.addValue(buf('first'));
-			await searcher.addValue(buf('second'));
+			await searcher.addValue(value1);
+			await searcher.addValue(value2);
 			return searcher;
 		}
 
-		expect((await (await makeSearcher()).findValueIn(base64(buf('first'))))
-			  ?.map(String) ?? null)
-			  .to.deep.equal(['base64']);
-		expect((await (await makeSearcher()).findValueIn(base64(buf('second'))))
-			  ?.map(String) ?? null)
-			  .to.deep.equal(['base64']);
-	});
-
-	it('can search for multiple values', async () => {
-		async function makeSearcher() {
-			const searcher = new ValueSearcher();
-			await searcher.addValue(buf('first'));
-			await searcher.addValue(buf('second'));
-			return searcher;
-		}
-
-		expect((await (await makeSearcher()).findValueIn(base64(buf('first'))))
+		expect((await (await makeSearcher()).findValueIn(base64(value1)))
 			  ?.map(String) ?? null)
 			  .to.deep.equal(['base64'], 'first');
-		expect((await (await makeSearcher()).findValueIn(hex(buf('second'))))
+		expect((await (await makeSearcher()).findValueIn(hex(value2)))
 			  ?.map(String) ?? null)
 			  .to.deep.equal(['hex'], 'second');
 	});
