@@ -250,7 +250,7 @@ describe(JsonStringTransform.name, function() {
 		it('can decode a substring', async () =>
 			  expect(await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`json=" hello!\n 😎\t\ud83d\ude0e" yes`), 1)))
-				    .to.deep.equal([buf(' hello!\n 😎\t😎')]));
+					.to.deep.equal([buf(' hello!\n 😎\t😎')]));
 		it('can decode multiple substrings', async () =>
 			  expect(await collect(new JsonStringTransform()
 					.extractDecode(buf(String.raw`{"prop1\"":" hello!\n 😎\t\ud83d\ude0e", "prop2\n": "another\tone" }`), 1)))
@@ -369,7 +369,7 @@ describe(FormDataTransform.name, function() {
 					Hello!
 					This is some data 😎
 					--_boundary--`)))))
-					.to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
+				    .to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
 		it('can handle weird unquoted form field name', async () =>
 			  expect(await collect(new FormDataTransform()
 					.extractDecode(buf(crlf(stripIndent`--_boundary
@@ -387,7 +387,7 @@ describe(FormDataTransform.name, function() {
 					Hello!
 					This is some data 😎
 					-- 'this:=1s/a, (perfectly+legal) --boundary?._--`)))))
-				    .to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
+					.to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
 		it('can handle binary file', async () =>
 			  expect(await collect(new FormDataTransform()
 					.extractDecode(Buffer.concat([
@@ -557,6 +557,19 @@ describe(LZStringTransform.name, function() {
 				  await collect(new LZStringTransform()
 						.extractDecode(input)));
 	});
+
+	describe(LZStringTransform.prototype.compressedLength.name, function() {
+		it('reports the correct compressed length', async () => {
+			const compress = new LZStringTransform();
+			expect(await compress.compressedLength(buf('abc😎'.repeat(42))))
+				  .to.equal(38);
+		});
+		it('honors variants', async () => {
+			const compress = new LZStringTransform(set('base64'));
+			expect(await compress.compressedLength(buf('abc😎'.repeat(42))))
+				  .to.equal(49);
+		});
+	});
 });
 
 
@@ -600,5 +613,20 @@ describe(CompressionTransform.name, function() {
 		it('does not throw on invalid input', async () =>
 			  await collect(new CompressionTransform()
 					.extractDecode(buf('0123456789abcdefda0000', 'hex'))));
+	});
+
+	describe(CompressionTransform.prototype.compressedLength.name, function() {
+		it('reports the correct compressed length', async () => {
+			const compress = new CompressionTransform();
+			expect(await compress.compressedLength(buf('abc😎'.repeat(42))))
+				  .to.equal(14); // deflate-raw
+			expect(await compress.compressedLength(buf('abcwehfidhkjwvjf4u2wegyudhjbvdwfsuqgyeihbdvasjhjds')))
+				  .to.equal(47); // brotli
+		});
+		it('honors formats', async () => {
+			const compress = new CompressionTransform(set('gzip'));
+			expect(await compress.compressedLength(buf('abc😎'.repeat(42))))
+				  .to.equal(32);
+		});
 	});
 });

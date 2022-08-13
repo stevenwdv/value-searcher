@@ -21,9 +21,10 @@ interface Needle {
 
 export class ValueSearcher {
 	#transformers: ValueTransformer[];
+	#values: Buffer[]  = [];
 	#needles: Needle[] = [];
 	#needleChecksums   = new Set<number>();
-	#minLength         = Infinity;
+	#minNeedleLength   = Infinity;
 
 	constructor(transformers = defaultTransformers) {
 		this.#transformers = transformers;
@@ -32,22 +33,29 @@ export class ValueSearcher {
 	async addValue(value: Buffer, maxEncodeLayers = 2, encoders = this.#transformers) {
 		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
 		if (newValue) {
+			this.#values.push(newValue);
 			const needle = {buffer: value, transformers: []};
 			this.#needles.push(needle);
-			//TODO fix minLength for compression with maxEncodeLayers=0 or compression only in decoders
-			this.#minLength = Math.min(this.#minLength, value.length);
+			this.#minNeedleLength = Math.min(this.#minNeedleLength, value.length);
 			if (maxEncodeLayers) await this.#addEncodings(encoders, needle, maxEncodeLayers - 1);
 		}
 	}
 
 	async findValueIn(
 		  haystack: Buffer, maxDecodeLayers = 10, decoders = this.#transformers): Promise<ValueTransformer[] | null> {
-		return this.#findValueImpl(haystack, maxDecodeLayers, decoders);
+		const minLength = Math.min(this.#minNeedleLength, ...await Promise.all(decoders
+			  .filter(dec => !!dec.extractDecode && !!dec.compressedLength)
+			  .map(async dec =>
+					Math.min(...await Promise.all(this.#values.map(
+						  b => dec.compressedLength!(b)))),
+			  )));
+		return this.#findValueImpl(haystack, maxDecodeLayers, decoders, minLength);
 	}
 
 	async #findValueImpl(
 		  haystack: Buffer, maxDecodeLayers: number,
 		  decoders: ValueTransformer[],
+		  minLength: number,
 		  prevTransformers: ValueTransformer[] = [],
 		  haystackChecksums                    = new Set<number>(),
 	): Promise<ValueTransformer[] | null> {
@@ -58,12 +66,12 @@ export class ValueSearcher {
 			//TODO I think this always executes all sync methods, is there an efficient way to prevent this?
 			return await raceWithCondition(decoders.filter(t => !!t.extractDecode)
 				  .map(async decoder => {
-					  const decoded = await asyncGeneratorCollect(decoder.extractDecode!(haystack, this.#minLength));
+					  const decoded      = await asyncGeneratorCollect(decoder.extractDecode!(haystack, minLength));
 					  const transformers = [...prevTransformers, decoder];
 					  return await raceWithCondition(decoded
 								  .filter(decodedBuf => tryAdd(haystackChecksums, crc32(decodedBuf)))
 								  .map(decodedBuf =>
-									    this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
+									    this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders, minLength,
 											  transformers, haystackChecksums)),
 						    r => !!r) ?? null;
 				  }), r => !!r) ?? null;
@@ -72,16 +80,17 @@ export class ValueSearcher {
 	}
 
 	async #addEncodings(encoders: ValueTransformer[], needle: Needle, maxExtraLayers: number) {
-		const newEncodings = filterUniqBy((await Promise.all(encoders
+		const newEncodings          = filterUniqBy((await Promise.all(encoders
 			  .filter(transformer => !!transformer.encodings)
 			  .filter(encoder => maxExtraLayers > 0 || !encoder.extractDecode)
 			  .map(async transformer =>
 					(await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
 						  .map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
 			  .flat(), this.#needleChecksums, ({buffer}) => crc32(buffer));
-		this.#needles.push(...newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode));
-		this.#minLength = newEncodings.map(({buffer}) => buffer.length)
-			  .reduce((a, b) => Math.min(a, b), this.#minLength);
+		const endingInNonReversible = newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode);
+		this.#needles.push(...endingInNonReversible);
+		this.#minNeedleLength = Math.min(this.#minNeedleLength,
+			  ...endingInNonReversible.map(({buffer}) => buffer.length));
 		if (maxExtraLayers)
 			await Promise.all(newEncodings.map(needle =>
 				  this.#addEncodings(encoders, needle, maxExtraLayers - 1)));

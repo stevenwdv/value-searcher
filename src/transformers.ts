@@ -25,6 +25,8 @@ export interface ValueTransformer {
 	 * @param minLength Minimal length of encoded substring to process (not of the decoded value)
 	 */
 	extractDecode?(value: Buffer, minLength: number): Buffers;
+
+	compressedLength?(value: Buffer): Promise<number>;
 }
 
 export class HashTransform implements ValueTransformer {
@@ -339,6 +341,15 @@ export class LZStringTransform implements ValueTransformer {
 			}
 		}
 	}
+
+	async compressedLength(value: Buffer) {
+		const str = value.toString();
+		if (this.variants.has('bytes') || this.variants.has('ucs2'))
+			return lzString.compressToUint8Array(str).length;
+		if (this.variants.has('base64') || this.variants.has('uri'))
+			return lzString.compressToBase64(str).replaceAll('=', '').length;
+		return lzString.compressToUTF16(str).length;
+	}
 }
 
 export class CompressionTransform implements ValueTransformer {
@@ -395,5 +406,16 @@ export class CompressionTransform implements ValueTransformer {
 				/*ignore*/
 			}
 		}
+	}
+
+	async compressedLength(value: Buffer) {
+		let min = Infinity;
+		if (this.formats.has('deflate-raw'))
+			min = Math.min(min, (await promisify(zlib.deflateRaw)(value)).length);
+		if (this.formats.has('brotli'))
+			min = Math.min(min, (await promisify(zlib.brotliCompress)(value)).length);
+		if (min < Infinity) return min;
+		if (this.formats.has('deflate')) return (await promisify(zlib.deflate)(value)).length;
+		return (await promisify(zlib.gzip)(value)).length;
 	}
 }
