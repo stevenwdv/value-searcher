@@ -352,11 +352,18 @@ export class CompressionTransform implements ValueTransformer {
 	async* encodings(value: Buffer): Buffers {
 		for (const format of this.formats) {
 			if (format === 'gzip') {
+				// GZIP is "independent of [...] operating system" [RFC 1952], so of course it has an operating system field ...?
+				// OS identifiers are here: https://datatracker.ietf.org/doc/html/rfc1952#page-8
+				// Implementation in Chromium (Zlib):
+				// https://source.chromium.org/chromium/chromium/src/+/main:third_party/freetype/src/src/gzip/zutil.h?q=OS_CODE
 				let gzipped       = await promisify(zlib.gzip)(value);
 				gzipped[9 /*OS*/] = 10; // TOPS-20 (Windows)
 				yield gzipped;
 				gzipped           = Buffer.from(gzipped);
 				gzipped[9 /*OS*/] = 3; // Unix
+				yield gzipped;
+				gzipped           = Buffer.from(gzipped);
+				gzipped[9 /*OS*/] = 7; // macOS
 				yield gzipped;
 			} else yield promisify({
 				'deflate': zlib.deflate,

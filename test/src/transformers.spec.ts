@@ -570,6 +570,7 @@ describe(CompressionTransform.name, function() {
 				  // From (Chrome's) CompressionStream:
 				  buf('1f8b080000000000000a6354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip on Windows
 				  buf('1f8b08000000000000036354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip on Unix
+				  buf('1f8b08000000000000076354764def5c7df6fd2d060088645efb0a000000', 'hex'), // gzip on macOS
 				  buf('789c6354764def5c7df6fd2d0600148a049b', 'hex'), // deflate
 				  buf('6354764def5c7df6fd2d0600', 'hex'), // deflate-raw
 			  ]));
