@@ -14,7 +14,7 @@ import {
 	UriTransform,
 	ValueTransformer,
 } from './transformers';
-import {asyncGeneratorCollect, filterUniqBy, raceWithCondition, tryAdd} from './utils';
+import {asyncGeneratorCollect, filterUniqBy, raceWithCondition} from './utils';
 
 /** Try to find an encoded value in a Buffer */
 export class ValueSearcher {
@@ -89,9 +89,8 @@ export class ValueSearcher {
 	 * @param maxDecodeLayers Maximum number of decoders to recursively apply
 	 * @param decoders Decoders to apply to `haystack`, *these must all actually be decoders*
 	 * @param minEncodedLength Minimum length (in bytes) that an encoded value can have
-	 * @param haystackChecksums Hashes of haystacks already searched per layer
-	 *  (FIXME switch to per layer such that a lower layer cannot say they fully searched it while a higher layer did not;
-	 *  ideally searching it in a higher layer would add it for lower layers as well, but I'm not sure if this can be done efficiently)
+	 * @param haystackChecksums Hashes of haystacks already searched mapped to the highest layer we saw them at
+	 *  (such that a lower layer cannot say they fully searched it while it ran out of recursion)
 	 * @returns If found, all encoders that were used to encode the value that was found in `haystack`, outside-in; otherwise `null`
 	 */
 	async #findValueImpl(
@@ -99,7 +98,7 @@ export class ValueSearcher {
 		  maxDecodeLayers: number,
 		  decoders: readonly ValueTransformer[],
 		  minEncodedLength: number,
-		  haystackChecksums = new Set<number>(),
+		  haystackChecksums = new Map<number /*checksum*/, number /*highest layer*/>(),
 	): Promise<ValueTransformer[] | null> {
 		for (const {buffer, transformers} of this.#needles)
 			if (haystack.includes(buffer))
@@ -113,9 +112,17 @@ export class ValueSearcher {
 					  // Take first match
 					  const res = await raceWithCondition(
 							// Compute all decoded values
-							(await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
-								  // Take only values not seen before
-								  .filter(decodedBuf => tryAdd(haystackChecksums, crc32(decodedBuf)))
+						    (await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
+								  // Take only values not seen before (or only on a lower layer)
+								  .filter(decodedBuf => {
+									  const checksum  = crc32(decodedBuf);
+									  const prevLayer = haystackChecksums.get(checksum);
+									  if (prevLayer === undefined || maxDecodeLayers > prevLayer) {
+										  haystackChecksums.set(checksum, maxDecodeLayers);
+										  return true;
+									  }
+									  return false;
+								  })
 								  // Recursively search
 								  .map(decodedBuf =>
 										this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
@@ -139,7 +146,7 @@ export class ValueSearcher {
 					// Take only encoders
 					// If this is the last layer, skip encoders that can also decode
 					.filter(transformer => !!transformer.encodings
-						  && (maxExtraLayers > 0 || !transformer.extractDecode))
+						  && (maxExtraLayers || !transformer.extractDecode))
 					// Encode needle using these encoders
 					.map(async transformer =>
 						  (await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))

@@ -45,7 +45,7 @@ export function filterUniqBy<ItemType, FilterType>(items: readonly ItemType[], s
 	return items.filter(item => tryAdd(seen, map(item)));
 }
 
-/** @return `true` if `value` was newly added to `set`, `false` if it was already present */
+/** @returns `true` if `value` was newly added to `set`, `false` if it was already present */
 export function tryAdd<T>(set: Set<T>, value: T): boolean {
 	if (set.has(value)) return false;
 	set.add(value);
