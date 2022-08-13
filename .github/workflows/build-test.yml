@@ -21,6 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Test on min version from package.json and on latest to see if no Node changes broke it
         node-version: [ latest, 16.7.0 ]
 
     runs-on: ubuntu-latest

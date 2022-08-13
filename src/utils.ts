@@ -10,7 +10,7 @@ export function regExpEscape(str: string) {
 /**
  * Template tag, strips indents from the template string, excluding content of placeholders
  */
-export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
+export function stripIndent(strings: TemplateStringsArray, ...placeholders: readonly unknown[]) {
 	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
 	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
 	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
@@ -39,7 +39,7 @@ export async function asyncGeneratorCollect<T>(gen: AsyncGenerator<T, void, unde
 }
 
 /** Add `map(element)` for each element in `items` to `seen` and return elements that were not in `seen` before */
-export function filterUniqBy<ItemType, FilterType>(items: ItemType[], seen: Set<FilterType>,
+export function filterUniqBy<ItemType, FilterType>(items: readonly ItemType[], seen: Set<FilterType>,
 	  map: (item: ItemType) => FilterType,
 ): ItemType[] {
 	return items.filter(item => tryAdd(seen, map(item)));

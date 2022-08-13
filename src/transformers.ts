@@ -13,23 +13,30 @@ import lzString from 'lz-string';
 
 import {ObjectStream, regExpEscape} from './utils';
 
+/** Consume using `for await` or e.g. {@link import('./utils').asyncGeneratorCollect} */
 type Buffers = AsyncGenerator<Buffer, void, undefined>;
 
 /**
- * Strings are UTF-8 encoded
+ * Encoder/decoder.
+ * Strings in `Buffer`s are UTF-8 encoded
  */
 export interface ValueTransformer {
+	/** Name of the transformer */
+	toString(): string;
+
+	/** Encoder: Get all possible encodings of `value` */
 	encodings?(value: Buffer): Buffers;
 
-	/**
-	 * @param minLength Minimal length of encoded substring to process (not of the decoded value)
-	 */
+	/** Decoder: Try to decode (substrings of `minLength` bytes of) `value` and return all possible decoded values */
 	extractDecode?(value: Buffer, minLength: number): Buffers;
 
+	/** For decoders that decode compressed values: minimal length of `value` when compressed */
 	compressedLength?(value: Buffer): Promise<number>;
 }
 
+/** Hash value */
 export class HashTransform implements ValueTransformer {
+	/** @see import('node:crypto').createHash */
 	constructor(public readonly algorithm: string, public readonly outputBytes?: number) {}
 
 	toString() {
@@ -46,6 +53,10 @@ export class HashTransform implements ValueTransformer {
 /** 2-3 chars: digit 62, digit 63, [padding] */
 export type Base64Dialect = string;
 
+/**
+ * Base64 encode/decode value.
+ * Supports extracting substrings
+ */
 export class Base64Transform implements ValueTransformer {
 	static readonly paddedDialect: Base64Dialect     = '+/=';
 	static readonly nonPaddedDialect: Base64Dialect  = '+/';
@@ -53,6 +64,10 @@ export class Base64Transform implements ValueTransformer {
 	/** Used by {@link import('lz-string').compressToEncodedURIComponent} */
 	static readonly altUrlSafeDialect: Base64Dialect = '+-$';
 
+	/**
+	 * Match all substrings for a dialect.
+	 * Excludes padded versions if corresponding non-padded versions exist
+	 */
 	readonly #findBase64Regexes: Record<Base64Dialect, RegExp>;
 
 	constructor(public readonly dialects: ReadonlySet<Base64Dialect> = new Set([
@@ -70,10 +85,12 @@ export class Base64Transform implements ValueTransformer {
 
 				  const escapedDigits  = `A-Za-z0-9${regExpEscape(digit62! + digit63!)}`,
 				        escapedPadding = padding ? regExpEscape(padding) : undefined;
+				  // Enforce padding if specified
+				  // Uses negative lookarounds to enforce boundaries of the regex, as \b does not work well with e.g. +/=
 				  return [dialect, new RegExp(escapedPadding
-					    // Encoded string is padded to make the length a multiple of 4
-					    ? String.raw`(?<![${escapedDigits}])(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))(?![${escapedDigits}${escapedPadding}])`
-					    : String.raw`(?<![${escapedDigits}])[${escapedDigits}]+(?!${escapedDigits})`, 'g')];
+						// Encoded string is padded to make the length a multiple of 4
+						? String.raw`(?<![${escapedDigits}])(?:[${escapedDigits}]{4})*(?:[${escapedDigits}]{4}|[${escapedDigits}]{3}${escapedPadding}|(?:[${escapedDigits}]{2}${escapedPadding}{2})|(?:[${escapedDigits}]${escapedPadding}{3}))(?![${escapedDigits}${escapedPadding}])`
+						: String.raw`(?<![${escapedDigits}])[${escapedDigits}]+(?!${escapedDigits})`, 'g')];
 			  }));
 	}
 
@@ -81,6 +98,7 @@ export class Base64Transform implements ValueTransformer {
 
 	async* encodings(value: Buffer): Buffers {
 		const base64 = value.toString('base64');
+		// Encode using all dialects
 		for (const dialect of this.dialects)
 			if (dialect === '+/=') yield Buffer.from(base64); // Prevent unnecessary work
 			else {
@@ -94,6 +112,7 @@ export class Base64Transform implements ValueTransformer {
 	async* extractDecode(value: Buffer, minLength: number): Buffers {
 		// Remove newlines
 		const str = value.toString().replaceAll(/[\r\n]/g, '');
+		// Try to decode substrings using all dialects (excl. padded if corresponding non-padded exist)
 		for (const [dialect, regex] of Object.entries(this.#findBase64Regexes))
 			  // Match all possible Base64 strings
 			for (let [match] of str.matchAll(regex)) {
@@ -120,6 +139,7 @@ export class Base64Transform implements ValueTransformer {
 					if (overflow || match!.length % 4 === 1) match += 'A'; // Append '0' bits
 				}
 
+				// Use built-in versions if possible
 				if (dialect.startsWith('+/')) yield Buffer.from(match!, 'base64');
 				else if (dialect.startsWith('-_')) yield Buffer.from(match!, 'base64url');
 				else {
@@ -134,6 +154,10 @@ export class Base64Transform implements ValueTransformer {
 	}
 }
 
+/**
+ * HEX encode/decode value.
+ * Supports extracting substrings
+ */
 export class HexTransform implements ValueTransformer {
 	constructor(public readonly variants: ReadonlySet<'lowercase' | 'uppercase'> = new Set(['lowercase', 'uppercase'])) {
 		assert(variants.size);
@@ -161,6 +185,10 @@ export class HexTransform implements ValueTransformer {
 }
 
 //TODO? also use legacy `escape` & `unescape`
+/**
+ * Encode/decode URI components including components with '+' instead '%20' (`application/x-www-form-urlencoded`).
+ * Supports extracting substrings
+ */
 export class UriTransform implements ValueTransformer {
 	toString() {return 'uri' as const;}
 
@@ -194,6 +222,10 @@ export class UriTransform implements ValueTransformer {
 	}
 }
 
+/**
+ * Decode JSON strings surrounded with double quotes.
+ * Supports extracting substrings
+ */
 export class JsonStringTransform implements ValueTransformer {
 	toString() {return 'json-string' as const;}
 
@@ -208,6 +240,10 @@ export class JsonStringTransform implements ValueTransformer {
 	}
 }
 
+/**
+ * HTML/XML encode/decode values to entities (character references) with and without quotes encoded.
+ * Does not extract substrings
+ */
 export class HtmlEntitiesTransform implements ValueTransformer {
 	toString() {return 'html-entities' as const;}
 
@@ -224,6 +260,11 @@ export class HtmlEntitiesTransform implements ValueTransformer {
 	}
 }
 
+/**
+ * Decode `multipart/form-data` object field contents.
+ * Does not support extracting substrings.
+ * Takes '--<...>' at the start as the boundary
+ */
 export class FormDataTransform implements ValueTransformer {
 	toString() {return 'form-data' as const;}
 
@@ -232,17 +273,19 @@ export class FormDataTransform implements ValueTransformer {
 		if (newlineOffset === -1) return;
 
 		// Match MIME boundary line (https://datatracker.ietf.org/doc/html/rfc2046#section-5.1.1)
+		// Normally we could take this from a Content-Type, as technically stuff could come before the boundary
 		const boundaryRegex = /^--([0-9a-zA-Z'()+_,./:=? -]{0,69}[0-9a-zA-Z'()+_,./:=?-])\s*$/;
-		// Avoid converting the whole buffer to string
+		// Avoid converting the whole buffer to string, just take the first line
 		const match         = value.subarray(0, newlineOffset).toString().match(boundaryRegex);
 		if (!match) return;
 
 		const boundary = match[1]!;
 
+		// Passes `Buffer`s and `Promise<Buffer>`s from callback to `yield*`
 		const bufferPromisePasser: ObjectStream<PassThrough, Buffer | Promise<Buffer>> = new PassThrough({objectMode: true});
 
 		// Extract part contents
-		// We do not handle `Content-Transfer-Encoding: quoted-printable`
+		// We do not decode `Content-Transfer-Encoding: quoted-printable`
 		// because it is deprecated for forms anyway (https://datatracker.ietf.org/doc/html/rfc7578#section-4.7)
 		Readable.from(value)
 			  .pipe(busboy({headers: {'content-type': `multipart/form-data; boundary="${boundary}"`}})
@@ -261,6 +304,10 @@ export class FormDataTransform implements ValueTransformer {
 	}
 }
 
+/**
+ * Compress/decompress value with lz-string.
+ * Does not support extracting substrings, except for Base64 via {@link Base64Transform#extractDecode}
+ */
 export class LZStringTransform implements ValueTransformer {
 	constructor(public readonly variants: ReadonlySet<'bytes' | 'ucs2' | 'utf16' | 'base64' | 'uri'>
 		  = new Set(['bytes', 'ucs2', 'utf16', 'base64', 'uri'])) {
@@ -291,7 +338,7 @@ export class LZStringTransform implements ValueTransformer {
 	}
 
 	/**
-	 * Note: does not do base64/uri directly, prepare with {@link Base64Transform} for that
+	 * Note: does not do base64/uri directly, prepare with {@link Base64Transform#extractDecode} for that
 	 */
 	async* extractDecode(value: Buffer): Buffers {
 		// Does not include plain 'compress' because it is not compatible with UTF-16 and does not survive UTF-8 translation
@@ -300,6 +347,7 @@ export class LZStringTransform implements ValueTransformer {
 		if (this.variants.has('bytes')) {
 			// Pad value to an even number of bytes
 			// Trailing zeros may be lost with compressToBase64/compressToEncodedURIComponent
+			// when decoded with Base64Transform
 			let evenValue = value;
 			if (value.length % 2 !== 0) {
 				evenValue = Buffer.alloc(value.length + 1);
@@ -352,6 +400,10 @@ export class LZStringTransform implements ValueTransformer {
 	}
 }
 
+/**
+ * Compress/decompress value with Zlib algorithms.
+ * Does not support extracting substrings
+ */
 export class CompressionTransform implements ValueTransformer {
 	constructor(public readonly formats: ReadonlySet<'gzip' | 'deflate' | 'deflate-raw' | 'brotli'> =
 		  new Set(['gzip', 'deflate', 'deflate-raw', 'brotli'])) {

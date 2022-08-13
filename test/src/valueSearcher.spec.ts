@@ -145,7 +145,7 @@ describe(ValueSearcher.name, function() {
 
 		function runTestCases(
 			  encodingLayers: number, decodingLayers: number,
-			  value: Buffer, testCases: Iterable<((b: Buffer) => Buffer)[]>,
+			  value: Buffer, testCases: Iterable<readonly ((b: Buffer) => Buffer)[]>,
 		) {
 			let searcher: ValueSearcher;
 			before(async function() {

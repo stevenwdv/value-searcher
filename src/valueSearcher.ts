@@ -1,3 +1,5 @@
+import assert from 'node:assert';
+
 import {crc32} from 'crc';
 
 import {
@@ -14,23 +16,35 @@ import {
 } from './transformers';
 import {asyncGeneratorCollect, filterUniqBy, raceWithCondition, tryAdd} from './utils';
 
-interface Needle {
-	buffer: Buffer;
-	transformers: ValueTransformer[];
-}
-
+/** Try to find an encoded value in a Buffer */
 export class ValueSearcher {
-	#transformers: ValueTransformer[];
-	#values: Buffer[]  = [];
-	#needles: Needle[] = [];
-	#needleChecksums   = new Set<number>();
-	#minNeedleLength   = Infinity;
+	/** Values added via {@link addValue} */
+	readonly #values: Buffer[]  = [];
+	/** Needles to search for: `#values` and encoded values added by `#addEncodings` */
+	readonly #needles: Needle[] = [];
+	/** Hashes of needles to check for duplicates */
+	readonly #needleChecksums   = new Set<number>();
+	/** Length of the shortest needle */
+	#minNeedleLength            = Infinity;
 
-	constructor(transformers = defaultTransformers) {
-		this.#transformers = transformers;
-	}
+	/**
+	 * @param transformers Default set of encoders/decoders to use for {@link addValue} and {@link findValueIn}
+	 */
+	constructor(public readonly transformers: readonly ValueTransformer[] = defaultTransformers) {}
 
-	async addValue(value: Buffer, maxEncodeLayers = 2, encoders = this.#transformers) {
+	/**
+	 * Add a value to search for
+	 * @param value Value to search for
+	 * @param maxEncodeLayers Maximum number of encoder layers with which to recursively encode `value`,
+	 *  always ending in an encoder that cannot also decode
+	 * @param encoders Encoders with which to encode `value`, by default the list passed in {@link constructor}
+	 */
+	async addValue(
+		  value: Buffer,
+		  maxEncodeLayers = 2,
+		  encoders        = this.transformers,
+	) {
+		// Check if value wasn't added before
 		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
 		if (newValue) {
 			this.#values.push(newValue);
@@ -41,64 +55,121 @@ export class ValueSearcher {
 		}
 	}
 
+	/**
+	 * Search for (encodings of) the values added with {@link addValue} in a buffer
+	 * @param haystack Buffer to search in
+	 * @param maxDecodeLayers Maximum number of decoder layers with which to decode (parts of) `haystack`
+	 * @param decoders Decoders with which to decode `value`, by default the list passed in {@link constructor}
+	 * @returns If found, all encoders that were used to encode the value that was found in `haystack`, outside-in; otherwise `null`.
+	 *  `[]` means that `haystack` directly contains one of the values
+	 */
 	async findValueIn(
-		  haystack: Buffer, maxDecodeLayers = 10, decoders = this.#transformers): Promise<ValueTransformer[] | null> {
-		const minLength = Math.min(this.#minNeedleLength, ...await Promise.all(decoders
+		  haystack: Buffer,
+		  maxDecodeLayers = 10,
+		  decoders        = this.transformers,
+	): Promise<ValueTransformer[] | null> {
+		assert(this.#values.length, 'call addValue first');
+		// Try to find the minimum length of encoded/decodable versions of a value
+		// Assumes that encoded values cannot compress to values shorter than the original value and the encoded value,
+		// which should be *mostly* accurate
+		const minEncodedLength = Math.min(this.#minNeedleLength, ...await Promise.all(decoders
+			  // Take only decompressing decoders
 			  .filter(dec => !!dec.extractDecode && !!dec.compressedLength)
 			  .map(async dec =>
 					Math.min(...await Promise.all(this.#values.map(
 						  b => dec.compressedLength!(b)))),
 			  )));
-		return this.#findValueImpl(haystack, maxDecodeLayers, decoders, minLength);
+		return this.#findValueImpl(haystack, maxDecodeLayers,
+			  decoders.filter(t => !!t.extractDecode), minEncodedLength);
 	}
 
+	/**
+	 * Try to find values in buffer
+	 * @param haystack Buffer to search in
+	 * @param maxDecodeLayers Maximum number of decoders to recursively apply
+	 * @param decoders Decoders to apply to `haystack`, *these must all actually be decoders*
+	 * @param minEncodedLength Minimum length (in bytes) that an encoded value can have
+	 * @param haystackChecksums Hashes of haystacks already searched per layer
+	 *  (FIXME switch to per layer such that a lower layer cannot say they fully searched it while a higher layer did not;
+	 *  ideally searching it in a higher layer would add it for lower layers as well, but I'm not sure if this can be done efficiently)
+	 * @returns If found, all encoders that were used to encode the value that was found in `haystack`, outside-in; otherwise `null`
+	 */
 	async #findValueImpl(
-		  haystack: Buffer, maxDecodeLayers: number,
-		  decoders: ValueTransformer[],
-		  minLength: number,
-		  prevTransformers: ValueTransformer[] = [],
-		  haystackChecksums                    = new Set<number>(),
+		  haystack: Buffer,
+		  maxDecodeLayers: number,
+		  decoders: readonly ValueTransformer[],
+		  minEncodedLength: number,
+		  haystackChecksums = new Set<number>(),
 	): Promise<ValueTransformer[] | null> {
 		for (const {buffer, transformers} of this.#needles)
 			if (haystack.includes(buffer))
-				return prevTransformers.concat(transformers);
+				return [...transformers];
 		if (maxDecodeLayers) {
-			//TODO I think this always executes all sync methods, is there an efficient way to prevent this?
-			return await raceWithCondition(decoders.filter(t => !!t.extractDecode)
+			//TODO I think this always executes all sync methods, is there a still parallel way to prevent this?
+
+			// Take the first match
+			return await raceWithCondition(decoders
 				  .map(async decoder => {
-					  const decoded      = await asyncGeneratorCollect(decoder.extractDecode!(haystack, minLength));
-					  const transformers = [...prevTransformers, decoder];
-					  return await raceWithCondition(decoded
+					  // Take first match
+					  const res = await raceWithCondition(
+							// Compute all decoded values
+							(await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
+								  // Take only values not seen before
 								  .filter(decodedBuf => tryAdd(haystackChecksums, crc32(decodedBuf)))
+								  // Recursively search
 								  .map(decodedBuf =>
-									    this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders, minLength,
-											  transformers, haystackChecksums)),
-						    r => !!r) ?? null;
+										this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
+											  minEncodedLength, haystackChecksums)),
+							r => !!r);
+					  res?.unshift(decoder);
+					  return res ?? null;
 				  }), r => !!r) ?? null;
 		}
 		return null;
 	}
 
-	async #addEncodings(encoders: ValueTransformer[], needle: Needle, maxExtraLayers: number) {
-		const newEncodings          = filterUniqBy((await Promise.all(encoders
-			  .filter(transformer => !!transformer.encodings)
-			  .filter(encoder => maxExtraLayers > 0 || !encoder.extractDecode)
-			  .map(async transformer =>
-					(await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
-						  .map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
-			  .flat(), this.#needleChecksums, ({buffer}) => crc32(buffer));
+	/**
+	 * Add encodings of `needle` to `#needles` and adjust `#minNeedleLength`.
+	 * @param encoders Encoders to encode `needle` with
+	 * @param maxExtraLayers Maximum times to recurse. `0` means adding just *one* encoding layer
+	 */
+	async #addEncodings(encoders: readonly ValueTransformer[], needle: Needle, maxExtraLayers: number) {
+		const newEncodings = filterUniqBy(
+			  (await Promise.all(encoders
+					// Take only encoders
+					// If this is the last layer, skip encoders that can also decode
+					.filter(transformer => !!transformer.encodings
+						  && (maxExtraLayers > 0 || !transformer.extractDecode))
+					// Encode needle using these encoders
+					.map(async transformer =>
+						  (await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
+								.map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
+					.flat(),
+			  // Only take encoded values that we haven't seen yet
+			  this.#needleChecksums, ({buffer}) => crc32(buffer));
+
+		// Add only values to #needles that have a non-reversible layer applied last
 		const endingInNonReversible = newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode);
 		this.#needles.push(...endingInNonReversible);
 		this.#minNeedleLength = Math.min(this.#minNeedleLength,
 			  ...endingInNonReversible.map(({buffer}) => buffer.length));
+
+		// Recurse on all newly added encoded values
 		if (maxExtraLayers)
 			await Promise.all(newEncodings.map(needle =>
 				  this.#addEncodings(encoders, needle, maxExtraLayers - 1)));
 	}
 }
 
+interface Needle {
+	buffer: Buffer;
+	/** Transformers that were used to encode the value, outside-in */
+	transformers: readonly ValueTransformer[];
+}
+
 export default ValueSearcher;
 
+/** Default encoders used for {@link ValueTransformer} */
 export const defaultTransformers: ValueTransformer[] = [
 	...['md5', 'sha1', 'sha256', 'sha512'].map(alg => new HashTransform(alg)),
 

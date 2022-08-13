@@ -1,3 +1,4 @@
+# Code coverage
 all: true
 include:
   - src/**

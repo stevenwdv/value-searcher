@@ -2,4 +2,11 @@
 
 Find some encoded value in a buffer. Useful for detecting something in a web request.
 
-(WIP)
+Example:
+
+```js
+const searcher = new ValueSearcher();
+await searcher.addValue(Buffer.from('hello 🙂'));
+const result = await searcher.findValueIn(Buffer.from('aGVsbG8lMjAlRjAlOUYlOTklODI'));
+console.log(result?.map(String)); // ['base64', 'uri']
+```
