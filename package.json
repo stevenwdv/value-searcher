@@ -2,6 +2,11 @@
 	"name": "value-searcher",
 	"author": "stevenwdv",
 	"version": "0.0.0",
+	"main": "./src/valueSearcher.ts",
+	"exports": {
+		".": "./src/valueSearcher.ts",
+		"./transformers": "./src/transformers.ts"
+	},
 	"scripts": {
 		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint .",
 		"lint-all": "npm run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint .",
