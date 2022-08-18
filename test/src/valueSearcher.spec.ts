@@ -55,7 +55,25 @@ describe(ValueSearcher.name, function() {
 				  .to.deep.equal(['json-string'],
 				  'should find value in JSON');
 		});
-		//TODO? Add more real-life examples
+		it('can find value for Facebook', async () => {
+			const searcher = new ValueSearcher();
+			await searcher.addValue(buf('mail@example.com'));
+			// wrangler.com
+			expect((await searcher.findValueIn(fs.readFileSync(path.join(__dirname, '../res/facebook'))))
+				  ?.map(String) ?? null)
+				  .to.deep.be.oneOf([
+				['hex', 'sha256'],
+				['form-data', 'hex', 'sha256'],
+			]);
+		});
+		it('can find value for Yandex Metrika', async () => {
+			const searcher = new ValueSearcher();
+			await searcher.addValue(buf('"some value!" 😎'));
+			// sunrise-sunset.org
+			expect((await searcher.findValueIn(fs.readFileSync(path.join(__dirname, '../res/yandex'))))
+				  ?.map(String) ?? null)
+				  .to.deep.equal([]);
+		});
 	});
 
 	//region helper functions

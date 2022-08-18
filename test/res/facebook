@@ -1,0 +1,103 @@
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="id"
+
+2413698672015718
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="ev"
+
+SubscribedButtonClick
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="dl"
+
+https://www.wrangler.com/account/login
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="rl"
+
+https://www.wrangler.com/
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="if"
+
+false
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="ts"
+
+1660822224655
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="cd[buttonFeatures]"
+
+{"classList":"navbar-toggler d-tlg-none","destination":"","id":"","imageUrl":"","innerText":"\n\nhamburger-menu\n\n\nMenu\n","numChildButtons":0,"tag":"button","type":"button","name":"","value":""}
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="cd[buttonText]"
+
+
+
+hamburger-menu
+
+
+Menu
+
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="cd[formFeatures]"
+
+[]
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="cd[pageFeatures]"
+
+{"title":"Sites-Wrangler-Site"}
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="cd[parameters]"
+
+[]
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="sw"
+
+1536
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="sh"
+
+864
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="udff[em]"
+
+81df589b1dceacc2fa7c8f536015fcdf854eee721fdf282a91ed9c4b0c54dc76
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="v"
+
+2.9.75
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="r"
+
+stable
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="ec"
+
+2
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="o"
+
+2078
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="fbp"
+
+fb.2.1660821473529.806978199
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="it"
+
+1660822190951
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="coo"
+
+false
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="es"
+
+automatic
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="tm"
+
+3
+-----------------------------235133560117081278141529347601
+Content-Disposition: form-data; name="rqm"
+
+SB
+-----------------------------235133560117081278141529347601--
