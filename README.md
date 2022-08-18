@@ -8,5 +8,5 @@ Example:
 const searcher = new ValueSearcher();
 await searcher.addValue(Buffer.from('hello 🙂'));
 const result = await searcher.findValueIn(Buffer.from('aGVsbG8lMjAlRjAlOUYlOTklODI'));
-console.log(result?.map(String)); // ['base64', 'uri']
+console.log(String(result)); // base64,uri
 ```

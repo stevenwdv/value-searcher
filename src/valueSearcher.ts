@@ -51,12 +51,15 @@ export class ValueSearcher {
 			const needle = {buffer: value, transformers: []};
 			this.#needles.push(needle);
 			this.#minNeedleLength = Math.min(this.#minNeedleLength, value.length);
-			if (maxEncodeLayers) await this.#addEncodings(encoders, needle, maxEncodeLayers - 1);
+			if (maxEncodeLayers)
+				await this.#addEncodings(encoders.filter(t => !!t.encodings),
+					  needle, maxEncodeLayers - 1);
 		}
 	}
 
 	/**
-	 * Search for (encodings of) the values added with {@link addValue} in a buffer
+	 * Search for (encodings of) the values added with {@link addValue} in a buffer.
+	 * Can be called concurrently multiple times
 	 * @param haystack Buffer to search in
 	 * @param maxDecodeLayers Maximum number of decoder layers with which to decode (parts of) `haystack`
 	 * @param decoders Decoders with which to decode `value`, by default the list passed in {@link constructor}
@@ -112,7 +115,7 @@ export class ValueSearcher {
 					  // Take first match
 					  const res = await raceWithCondition(
 							// Compute all decoded values
-						    (await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
+							(await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
 								  // Take only values not seen before (or only on a lower layer)
 								  .filter(decodedBuf => {
 									  const checksum  = crc32(decodedBuf);
@@ -137,16 +140,14 @@ export class ValueSearcher {
 
 	/**
 	 * Add encodings of `needle` to `#needles` and adjust `#minNeedleLength`.
-	 * @param encoders Encoders to encode `needle` with
+	 * @param encoders Encoders to encode `needle` with, *these must all actually be encoders*
 	 * @param maxExtraLayers Maximum times to recurse. `0` means adding just *one* encoding layer
 	 */
 	async #addEncodings(encoders: readonly ValueTransformer[], needle: Needle, maxExtraLayers: number) {
 		const newEncodings = filterUniqBy(
 			  (await Promise.all(encoders
-					// Take only encoders
-					// If this is the last layer, skip encoders that can also decode
-					.filter(transformer => !!transformer.encodings
-						  && (maxExtraLayers || !transformer.extractDecode))
+				    // If this is the last layer, skip encoders that can also decode
+				    .filter(transformer => maxExtraLayers || !transformer.extractDecode)
 					// Encode needle using these encoders
 					.map(async transformer =>
 						  (await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
