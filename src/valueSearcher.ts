@@ -33,6 +33,16 @@ export class ValueSearcher {
 	constructor(public readonly transformers: readonly ValueTransformer[] = defaultTransformers) {}
 
 	/**
+	 * Create ValueSearcher with default settings and call {@link addValue} with each argument
+	 * @param values Values to search for (strings will be converted to UTF-8)
+	 */
+	static async fromValues(...values: (Buffer | string)[]): Promise<ValueSearcher> {
+		const searcher = new ValueSearcher();
+		await Promise.all(values.map(value => searcher.addValue(Buffer.from(value))));
+		return searcher;
+	}
+
+	/**
 	 * Add a value to search for
 	 * @param value Value to search for
 	 * @param maxEncodeLayers Maximum number of encoder layers with which to recursively encode `value`,
@@ -107,7 +117,8 @@ export class ValueSearcher {
 			if (haystack.includes(buffer))
 				return [...transformers];
 		if (maxDecodeLayers) {
-			//TODO I think this always executes all sync methods, is there a still parallel way to prevent this?
+			//TODO I think this always executes all sync methods, is there a still parallel way to prevent this? (try BFS?)
+			//TODO abort still running searchers after race is won?
 
 			// Take the first match
 			return await raceWithCondition(decoders
@@ -154,6 +165,7 @@ export class ValueSearcher {
 								.map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
 					.flat(),
 			  // Only take encoded values that we haven't seen yet
+			  //FIXME? if the same needle is encountered in a call with more encoders, it won't be encoded with the new encoders
 			  this.#needleChecksums, ({buffer}) => crc32(buffer));
 
 		// Add only values to #needles that have a non-reversible layer applied last
