@@ -8,8 +8,8 @@
 		"./transformers": "./src/transformers.ts"
 	},
 	"scripts": {
-		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint .",
-		"lint-all": "npm run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint .",
+		"lint": "tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 .",
+		"lint-all": "npm run lint && cd ./test/ && tsc --noEmit --emitDeclarationOnly false && eslint --max-warnings 0 .",
 		"test": "nyc mocha"
 	},
 	"engines": {
