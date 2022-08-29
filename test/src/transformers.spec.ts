@@ -32,6 +32,11 @@ describe(HashTransform.name, function() {
 			  expect(await collect(new HashTransform('shake256', 256 / 8)
 					.encodings(buf('0123456789abcdefda00', 'hex'))))
 					.to.deep.equal([buf('efb7f27859a1b32205f9a67683d6549eb255557cdccbb6469b42015537d6f2bc', 'hex')]));
+		it('can produce a hash with prefix & suffix', async () =>
+			  expect(await collect(new HashTransform('sha256', undefined,
+					buf('0123', 'hex'), buf('d0f0', 'hex'))
+					.encodings(buf('0123456789abcdefda00', 'hex'))))
+					.to.deep.equal([buf('fef26027bd84745bae0098a1ff558aca3917444ce02bbc6c492377a4d45c5afb', 'hex')]));
 	});
 });
 

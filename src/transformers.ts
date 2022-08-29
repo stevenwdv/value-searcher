@@ -37,16 +37,23 @@ export interface ValueTransformer {
 /** Hash value */
 export class HashTransform implements ValueTransformer {
 	/** @see import('node:crypto').createHash */
-	constructor(public readonly algorithm: string, public readonly outputBytes?: number) {}
+	constructor(
+		  public readonly algorithm: string,
+		  public readonly outputBytes?: number,
+		  public readonly prefix?: Buffer,
+		  public readonly suffix?: Buffer,
+	) {}
 
 	toString() {
 		return this.outputBytes ? `${this.algorithm}/${this.outputBytes}` : this.algorithm;
 	}
 
 	async* encodings(value: Buffer): Buffers {
-		yield crypto.createHash(this.algorithm, {outputLength: this.outputBytes})
-			  .update(value)
-			  .digest();
+		const hasher = crypto.createHash(this.algorithm, {outputLength: this.outputBytes});
+		if (this.prefix) hasher.update(this.prefix);
+		hasher.update(value);
+		if (this.suffix) hasher.update(this.suffix);
+		yield hasher.digest();
 	}
 }
 
