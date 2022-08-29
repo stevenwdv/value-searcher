@@ -62,7 +62,7 @@ export class Base64Transform implements ValueTransformer {
 	static readonly nonPaddedDialect: Base64Dialect  = '+/';
 	static readonly urlSafeDialect: Base64Dialect    = '-_';
 	/** Used by {@link import('lz-string').compressToEncodedURIComponent} */
-	static readonly altUrlSafeDialect: Base64Dialect = '+-$';
+	static readonly altUrlSafeDialect: Base64Dialect = '+-';
 
 	/**
 	 * Match all substrings for a dialect.

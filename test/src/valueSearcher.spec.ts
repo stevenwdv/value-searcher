@@ -74,6 +74,11 @@ describe(ValueSearcher.name, function() {
 				  ?.map(String) ?? null)
 				  .to.deep.equal([]);
 		});
+		it('can find value in in Base64 lz-string', async () =>
+			  expect((await (await ValueSearcher.fromValues('cosicadam0+sodastream.com@gmail.com'))
+					.findValueIn(buf('https://events.bouncex.net/track.gif/user?wklz=K4ZwpgTgXCD2wQMZgLwEsB2AHYAXAZKJFGALYCGaANiorCGouQCbmkAMApAEwBCcrELghg2AOjqlOAFnYBzCtQmxShcNEw5cAfTTMUAIwAeAWjBUyYDLhMBGbrYBs7ABy2TWdgAtSABWkYJpp4asRyiBAo0gDs+ORyVrgoAFYg+GAAjii2+KSwzKjs+ADuYAYMuGB6KADM3NGO+ABuaBXVTtzc0i7sNTUNNdKOAKzD+AUtyNUuzs7c7K4AnItD-cvRsVjxYC1gxe344BnAVlP60viIVGiJuGikYEJsWNmOnd29o7bdl9eJ5Fg0E1IAxYBgULh4jVxjtGKhmPgtgltLgAJ5YVBeFRgQ7wJCoUoGXEAMx07VwACkABLkWBeACaACVuE1GQBJABeWGiFIA4lS2QAVKjcDDE6LFfBecgQZi6fS2Sk05LsABqjIAigB5YCMgBywwwADFzABlNAcgBaqNwTV4QA')))
+					?.map(String) ?? null)
+					.to.deep.equal(['base64', 'lz-string', 'uri']));
 	});
 
 	//region helper functions
