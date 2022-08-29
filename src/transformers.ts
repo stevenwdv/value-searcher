@@ -223,6 +223,28 @@ export class UriTransform implements ValueTransformer {
 }
 
 /**
+ * Encode/decode using a custom character mapping, leave characters not in the mapping alone.
+ * Does not support extracting substrings
+ */
+export class CustomStringMapTransform implements ValueTransformer {
+	readonly #revMap: Record<string, string>;
+
+	constructor(public readonly map: Record<string, string>) {
+		this.#revMap = {};
+		for (const [from, to] of Object.entries(map))
+			this.#revMap[to] = from;
+	}
+
+	async* encodings(value: Buffer): Buffers {
+		yield Buffer.from(value.toString().replaceAll(/./ug, c => this.map[c] ?? c));
+	}
+
+	async* extractDecode(value: Buffer): Buffers {
+		yield Buffer.from(value.toString().replaceAll(/./ug, c => this.#revMap[c] ?? c));
+	}
+}
+
+/**
  * Decode JSON strings surrounded with double quotes.
  * Supports extracting substrings
  */

@@ -4,6 +4,7 @@ import deepEqualInAnyOrder from 'deep-equal-in-any-order';
 import {
 	Base64Transform,
 	CompressionTransform,
+	CustomStringMapTransform,
 	FormDataTransform,
 	HashTransform,
 	HexTransform,
@@ -229,7 +230,7 @@ describe(UriTransform.name, function() {
 		it('should honor minLength', async () =>
 			  expect(await collect(new UriTransform()
 					.extractDecode(buf('%3F %3D%3E %3C'), 4)))
-					.to.deep.equal([buf('=>')]));
+				    .to.deep.equal([buf('=>')]));
 		it('should not throw on invalid input', async () =>
 			  await collect(new UriTransform()
 					.extractDecode(buf('hello%A%% \t\nhey'), 1)));
@@ -237,6 +238,26 @@ describe(UriTransform.name, function() {
 			  expect(await collect(new UriTransform()
 					.extractDecode(buf([0, 1, 2, 3, 0xf0, 0xff]), 1)))
 					.to.be.empty);
+	});
+});
+
+
+describe(CustomStringMapTransform.name, function() {
+	const transform = new CustomStringMapTransform({
+		'A': 'B',
+		'B': 'C',
+		'C': 'A',
+		'😎': '=',
+	});
+	describe(CustomStringMapTransform.prototype.encodings.name, function() {
+		it('can properly encode', async () =>
+			  expect(await collect(transform.encodings(buf('ABCBADEFG!😎'))))
+					.to.deep.equal([buf('BCACBDEFG!=')]));
+	});
+	describe(CustomStringMapTransform.prototype.extractDecode.name, function() {
+		it('can properly decode', async () =>
+			  expect(await collect(transform.extractDecode(buf('BCACBDEFG!='))))
+					.to.deep.equal([buf('ABCBADEFG!😎')]));
 	});
 });
 
@@ -369,7 +390,7 @@ describe(FormDataTransform.name, function() {
 					Hello!
 					This is some data 😎
 					--_boundary--`)))))
-				    .to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
+					.to.deep.equal([buf('Hello!\r\nThis is some data 😎')]));
 		it('can handle weird unquoted form field name', async () =>
 			  expect(await collect(new FormDataTransform()
 					.extractDecode(buf(crlf(stripIndent`--_boundary
