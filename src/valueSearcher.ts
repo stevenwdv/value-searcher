@@ -45,14 +45,15 @@ export class ValueSearcher {
 	/**
 	 * Add a value to search for
 	 * @param value Value to search for
-	 * @param maxEncodeLayers Maximum number of encoder layers with which to recursively encode `value`,
-	 *  always ending in an encoder that cannot also decode
+	 * @param maxEncodeLayers Maximum number of encoder layers with which to recursively encode `value`
 	 * @param encoders Encoders with which to encode `value`, by default the list passed in {@link constructor}
+	 * @param endWithNonReversibleLayer Make sure that the outermost layer used to encode `value` cannot also decode
 	 */
 	async addValue(
 		  value: Buffer,
-		  maxEncodeLayers = 2,
-		  encoders        = this.transformers,
+		  maxEncodeLayers           = 2,
+		  encoders                  = this.transformers,
+		  endWithNonReversibleLayer = true,
 	) {
 		// Check if value wasn't added before
 		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
@@ -62,7 +63,7 @@ export class ValueSearcher {
 			this.#needles.push(needle);
 			this.#minNeedleLength = Math.min(this.#minNeedleLength, value.length);
 			if (maxEncodeLayers)
-				await this.#addEncodings(encoders.filter(t => !!t.encodings),
+				await this.#addEncodings(encoders.filter(t => !!t.encodings), endWithNonReversibleLayer,
 					  needle, maxEncodeLayers - 1);
 		}
 	}
@@ -117,6 +118,24 @@ export class ValueSearcher {
 			if (haystack.includes(buffer))
 				return [...transformers];
 		if (maxDecodeLayers) {
+			/*for (const decoder of decoders) {
+				for await (const decodedBuf of decoder.extractDecode!(haystack, minEncodedLength)) {
+					const checksum  = crc32(decodedBuf);
+					const prevLayer = haystackChecksums.get(checksum);
+					if (prevLayer === undefined || maxDecodeLayers > prevLayer)
+						haystackChecksums.set(checksum, maxDecodeLayers);
+					else continue;
+
+					const recurseRes = await this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
+						  minEncodedLength, haystackChecksums);
+					if (recurseRes) {
+						recurseRes.unshift(decoder);
+						return recurseRes;
+					}
+				}
+			}
+		    */
+
 			//TODO I think this always executes all sync methods, is there a still parallel way to prevent this? (try BFS?)
 			//TODO abort still running searchers after race is won?
 
@@ -154,11 +173,16 @@ export class ValueSearcher {
 	 * @param encoders Encoders to encode `needle` with, *these must all actually be encoders*
 	 * @param maxExtraLayers Maximum times to recurse. `0` means adding just *one* encoding layer
 	 */
-	async #addEncodings(encoders: readonly ValueTransformer[], needle: Needle, maxExtraLayers: number) {
+	async #addEncodings(
+		  encoders: readonly ValueTransformer[],
+		  endWithNonReversibleLayer: boolean,
+		  needle: Needle,
+		  maxExtraLayers: number,
+	) {
 		const newEncodings = filterUniqBy(
 			  (await Promise.all(encoders
-				    // If this is the last layer, skip encoders that can also decode
-				    .filter(transformer => maxExtraLayers || !transformer.extractDecode)
+					// If this is the last layer and endWithNonReversibleLayer, skip encoders that can also decode
+					.filter(transformer => !(!maxExtraLayers && endWithNonReversibleLayer && transformer.extractDecode))
 					// Encode needle using these encoders
 					.map(async transformer =>
 						  (await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
@@ -168,16 +192,18 @@ export class ValueSearcher {
 			  //FIXME? if the same needle is encountered in a call with more encoders, it won't be encoded with the new encoders
 			  this.#needleChecksums, ({buffer}) => crc32(buffer));
 
-		// Add only values to #needles that have a non-reversible layer applied last
-		const endingInNonReversible = newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode);
-		this.#needles.push(...endingInNonReversible);
+		// Add only values to #needles that have a non-reversible layer applied last unless not endWithNonReversibleLayer
+		const addNeedles = endWithNonReversibleLayer
+			  ? newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode)
+			  : newEncodings;
+		this.#needles.push(...addNeedles);
 		this.#minNeedleLength = Math.min(this.#minNeedleLength,
-			  ...endingInNonReversible.map(({buffer}) => buffer.length));
+			  ...addNeedles.map(({buffer}) => buffer.length));
 
 		// Recurse on all newly added encoded values
 		if (maxExtraLayers)
 			await Promise.all(newEncodings.map(needle =>
-				  this.#addEncodings(encoders, needle, maxExtraLayers - 1)));
+				  this.#addEncodings(encoders, endWithNonReversibleLayer, needle, maxExtraLayers - 1)));
 	}
 }
 

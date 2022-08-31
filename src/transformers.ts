@@ -77,12 +77,18 @@ export class Base64Transform implements ValueTransformer {
 	 */
 	readonly #findBase64Regexes: Record<Base64Dialect, RegExp>;
 
-	constructor(public readonly dialects: ReadonlySet<Base64Dialect> = new Set([
-		Base64Transform.paddedDialect,
-		Base64Transform.nonPaddedDialect,
-		Base64Transform.urlSafeDialect,
-		Base64Transform.altUrlSafeDialect,
-	])) {
+	/**
+	 * @param trySkipFirstChars Skip 0-3 chars of a matching substring. Currently only works with non-padded dialects
+	 */
+	constructor(
+		  public readonly dialects: ReadonlySet<Base64Dialect> = new Set([
+			  Base64Transform.paddedDialect,
+			  Base64Transform.nonPaddedDialect,
+			  Base64Transform.urlSafeDialect,
+			  Base64Transform.altUrlSafeDialect,
+		  ]),
+		  public readonly trySkipFirstChars                    = false,
+	) {
 		assert(dialects.size);
 		this.#findBase64Regexes = Object.fromEntries([...dialects]
 			  // Skip padded versions if non-padded versions exist
@@ -129,33 +135,39 @@ export class Base64Transform implements ValueTransformer {
 				const [, , padding] = dialect;
 				if (padding) match = match!.replaceAll(padding, '');
 
-				// Regular Base64 discards any bits that do not fit inside the rounded down number of bytes
-				// e.g. Buffer.from('/', 'base64').length === 0
-				// But this is a problem for lz-string's compressToBase64 in some cases,
-				// e.g. lz.compressToBase64('ssagwefhbyigadÿÿÿÿÿ').endsWith('Q===')
-				// The code below checks if '1' bits were dropped and if so it appends extra '0' bits
-				// to force the byte to be included
-				// It also adds '0' bits if we have a case like 'A===' because this will not occur when encoding bytes
-				// and otherwise the extra digit is ignored
-				if (match!.length % 4 !== 0) {
-					const decodeChar               = (c: string) =>
-						  `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789${dialect}`.indexOf(c);
-					const bitsDroppedFromLastDigit = match!.length * 6 % 8;
-					const droppedBitsMask          = (1 << bitsDroppedFromLastDigit) - 1;
-					const overflow                 = !!(decodeChar(match!.at(-1)!) & droppedBitsMask);
-					if (overflow || match!.length % 4 === 1) match += 'A'; // Append '0' bits
-				}
-
-				// Use built-in versions if possible
-				if (dialect.startsWith('+/')) yield Buffer.from(match!, 'base64');
-				else if (dialect.startsWith('-_')) yield Buffer.from(match!, 'base64url');
-				else {
+				if (!(dialect.startsWith('+/') || dialect.startsWith('-_'))) {
 					// Replace last digits with regular '+/' and decode
 					const [digit62, digit63] = dialect;
 					const digitMap           = {[digit62!]: '+', [digit63!]: '/'};
-					yield Buffer.from(match!.replaceAll(
+					match                    = match!.replaceAll(
 						  new RegExp(`[${regExpEscape(digit62! + digit63!)}]`, 'g'),
-						  c => digitMap[c]!), 'base64');
+						  c => digitMap[c]!);
+				}
+
+				for (let skipChars = 0; skipChars < (this.trySkipFirstChars ? 4 : 1); ++skipChars) {
+					if (skipChars >= match!.length || match!.length - skipChars < minLength) break;
+					let encoded = match!.substring(skipChars);
+
+					// Regular Base64 discards any bits that do not fit inside the rounded down number of bytes
+					// e.g. Buffer.from('/', 'base64').length === 0
+					// But this is a problem for lz-string's compressToBase64 in some cases,
+					// e.g. lz.compressToBase64('ssagwefhbyigadÿÿÿÿÿ').endsWith('Q===')
+					// The code below checks if '1' bits were dropped and if so it appends extra '0' bits
+					// to force the byte to be included
+					// It also adds '0' bits if we have a case like 'A===' because this will not occur when encoding bytes
+					// and otherwise the extra digit is ignored
+					if (encoded.length % 4 !== 0) {
+						const decodeChar               = (c: string) =>
+							  `ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789${dialect}`.indexOf(c);
+						const bitsDroppedFromLastDigit = encoded.length * 6 % 8;
+						const droppedBitsMask          = (1 << bitsDroppedFromLastDigit) - 1;
+						const overflow                 = !!(decodeChar(encoded.at(-1)!) & droppedBitsMask);
+						if (overflow || encoded.length % 4 === 1) encoded += 'A'; // Append '0' bits
+					}
+
+					// Use built-in versions if possible
+					if (dialect.startsWith('-_')) yield Buffer.from(encoded, 'base64url');
+					else yield Buffer.from(encoded, 'base64');
 				}
 			}
 	}

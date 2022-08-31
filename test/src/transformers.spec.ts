@@ -119,6 +119,20 @@ describe(Base64Transform.name, function() {
 				  buf([0xff, 0b11110000]),
 				  buf([0]),
 			  ]));
+		it('can decode base64 prefixed with extra characters with non-padded dialect', async () => {
+			expect(await collect(new Base64Transform(set(Base64Transform.nonPaddedDialect), true)
+				  .extractDecode(buf('ASNFZ4mrze/+2gA='), 1)))
+				  .to.deep.contain(buf('0123456789abcdeffeda00', 'hex'));
+			expect(await collect(new Base64Transform(set(Base64Transform.nonPaddedDialect), true)
+				  .extractDecode(buf('EASNFZ4mrze/+2gA='), 1)))
+				  .to.deep.contain(buf('0123456789abcdeffeda00', 'hex'));
+			expect(await collect(new Base64Transform(set(Base64Transform.nonPaddedDialect), true)
+				  .extractDecode(buf('EEASNFZ4mrze/+2gA='), 1)))
+				  .to.deep.contain(buf('0123456789abcdeffeda00', 'hex'));
+			expect(await collect(new Base64Transform(set(Base64Transform.nonPaddedDialect), true)
+				  .extractDecode(buf('EEEASNFZ4mrze/+2gA='), 1)))
+				  .to.deep.contain(buf('0123456789abcdeffeda00', 'hex'));
+		});
 		it('should ignore line endings', async () =>
 			  expect(await collect(new Base64Transform(set(Base64Transform.paddedDialect))
 					.extractDecode(buf('ASNFZ4\r\nmrz\ne/+2gA='), 1)))
