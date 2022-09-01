@@ -216,6 +216,8 @@ interface Needle {
 
 export default ValueSearcher;
 
+export * as transformers from './transformers';
+
 /** Default encoders used for {@link ValueTransformer} */
 export const defaultTransformers: readonly ValueTransformer[] = [
 	...['md5', 'sha1', 'sha256', 'sha512'].map(alg => new HashTransform(alg)),
