@@ -55,6 +55,7 @@ export class ValueSearcher {
 		  encoders                  = this.transformers,
 		  endWithNonReversibleLayer = true,
 	) {
+		assert(value.length, 'value cannot be empty');
 		// Check if value wasn't added before
 		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
 		if (newValue) {
@@ -216,7 +217,7 @@ interface Needle {
 export default ValueSearcher;
 
 /** Default encoders used for {@link ValueTransformer} */
-export const defaultTransformers: ValueTransformer[] = [
+export const defaultTransformers: readonly ValueTransformer[] = [
 	...['md5', 'sha1', 'sha256', 'sha512'].map(alg => new HashTransform(alg)),
 
 	new Base64Transform(),
