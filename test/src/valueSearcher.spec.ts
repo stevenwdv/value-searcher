@@ -331,6 +331,26 @@ describe(ValueSearcher.name, function() {
 			  .to.deep.equal(['hex'], 'second');
 	});
 
+	it('can search for the same value added twice with different encoders', async () => {
+		const value    = buf('value');
+		const encoded1 = createHash('sha256').update(value).digest(),
+		      encoded2 = createHash('sha512').update(value).digest();
+
+		async function makeSearcher() {
+			const searcher = new ValueSearcher();
+			await searcher.addValue(value, undefined, [new HashTransform('sha256')]);
+			await searcher.addValue(value, undefined, [new HashTransform('sha512')]);
+			return searcher;
+		}
+
+		expect((await (await makeSearcher()).findValueIn(encoded1))
+			  ?.map(String) ?? null)
+			  .to.deep.equal(['sha256'], 'first');
+		expect((await (await makeSearcher()).findValueIn(encoded2))
+			  ?.map(String) ?? null)
+			  .to.deep.equal(['sha512'], 'second');
+	});
+
 	it('can search multiple times', async () => {
 		const searcher = new ValueSearcher();
 		const value    = buf('"some value!" 😎');

@@ -20,6 +20,8 @@ import {asyncGeneratorCollect, filterUniqBy, raceWithCondition} from './utils';
 export class ValueSearcher {
 	/** Values added via {@link addValue} */
 	readonly #values: Buffer[]  = [];
+	/** Hashes of values to check for duplicates */
+	readonly #valueChecksums    = new Set<number>();
 	/** Needles to search for: `#values` and encoded values added by `#addEncodings` */
 	readonly #needles: Needle[] = [];
 	/** Hashes of needles to check for duplicates */
@@ -56,17 +58,17 @@ export class ValueSearcher {
 		  endWithNonReversibleLayer = true,
 	) {
 		assert(value.length, 'value cannot be empty');
-		// Check if value wasn't added before
-		const [newValue] = filterUniqBy([value], this.#needleChecksums, crc32);
-		if (newValue) {
-			this.#values.push(newValue);
-			const needle = {buffer: value, transformers: []};
-			this.#needles.push(needle);
-			this.#minNeedleLength = Math.min(this.#minNeedleLength, value.length);
-			if (maxEncodeLayers)
-				await this.#addEncodings(encoders.filter(t => !!t.encodings), endWithNonReversibleLayer,
-					  needle, maxEncodeLayers - 1);
-		}
+		// Add value if it wasn't added before
+		this.#values.push(...filterUniqBy([value], this.#valueChecksums, crc32));
+		// Add value as needle if it wasn't added before
+		const needle: Needle = {buffer: value, transformers: []};
+		this.#needles.push(...filterUniqBy([needle], this.#needleChecksums, ({buffer}) => crc32(buffer)));
+		this.#minNeedleLength = Math.min(this.#minNeedleLength, value.length);
+
+		if (maxEncodeLayers)
+			  // Note: we cannot skip adding encodings for already seen values as the encoders may be different
+			await this.#addEncodings(encoders.filter(t => !!t.encodings), endWithNonReversibleLayer,
+				  needle, maxEncodeLayers - 1);
 	}
 
 	/**
@@ -146,17 +148,9 @@ export class ValueSearcher {
 					  // Take first match
 					  const res = await raceWithCondition(
 							// Compute all decoded values
-							(await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
+						    (await asyncGeneratorCollect(decoder.extractDecode!(haystack, minEncodedLength)))
 								  // Take only values not seen before (or only on a lower layer)
-								  .filter(decodedBuf => {
-									  const checksum  = crc32(decodedBuf);
-									  const prevLayer = haystackChecksums.get(checksum);
-									  if (prevLayer === undefined || maxDecodeLayers > prevLayer) {
-										  haystackChecksums.set(checksum, maxDecodeLayers);
-										  return true;
-									  }
-									  return false;
-								  })
+								  .filter(checkChecksumLayer(haystackChecksums, maxDecodeLayers, crc32))
 								  // Recursively search
 								  .map(decodedBuf =>
 										this.#findValueImpl(decodedBuf, maxDecodeLayers - 1, decoders,
@@ -173,39 +167,56 @@ export class ValueSearcher {
 	 * Add encodings of `needle` to `#needles` and adjust `#minNeedleLength`.
 	 * @param encoders Encoders to encode `needle` with, *these must all actually be encoders*
 	 * @param maxExtraLayers Maximum times to recurse. `0` means adding just *one* encoding layer
+	 * @param addedNeedleChecksums Hashes of needles already added to the highest layer we saw them at
+	 *  (such that a lower layer cannot say they fully encoded it while it ran out of recursion)
 	 */
 	async #addEncodings(
 		  encoders: readonly ValueTransformer[],
 		  endWithNonReversibleLayer: boolean,
 		  needle: Needle,
 		  maxExtraLayers: number,
+		  addedNeedleChecksums = new Map<number /*checksum*/, number /*highest layer*/>(),
 	) {
-		const newEncodings = filterUniqBy(
-			  (await Promise.all(encoders
-					// If this is the last layer and endWithNonReversibleLayer, skip encoders that can also decode
-					.filter(transformer => !(!maxExtraLayers && endWithNonReversibleLayer && transformer.extractDecode))
-					// Encode needle using these encoders
-					.map(async transformer =>
-						  (await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
-								.map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
-					.flat(),
-			  // Only take encoded values that we haven't seen yet
-			  //FIXME? if the same needle is encountered in a call with more encoders, it won't be encoded with the new encoders
-			  this.#needleChecksums, ({buffer}) => crc32(buffer));
+		const newEncodings = (await Promise.all(encoders
+			  // If this is the last layer and endWithNonReversibleLayer, skip encoders that can also decode
+			  .filter(transformer => !(!maxExtraLayers && endWithNonReversibleLayer && transformer.extractDecode))
+			  // Encode needle using these encoders
+			  .map(async transformer =>
+					(await asyncGeneratorCollect(transformer.encodings!(needle.buffer)))
+						  .map(buffer => ({buffer, transformers: [transformer, ...needle.transformers]})))))
+			  .flat()
+			  .map(needle => ({needle, checksum: crc32(needle.buffer)}))
+			  // Take only values not seen before (or only on a lower layer)
+			  .filter(checkChecksumLayer(addedNeedleChecksums, maxExtraLayers, ({checksum}) => checksum));
 
-		// Add only values to #needles that have a non-reversible layer applied last unless not endWithNonReversibleLayer
-		const addNeedles = endWithNonReversibleLayer
-			  ? newEncodings.filter(({transformers}) => !transformers[0]!.extractDecode)
-			  : newEncodings;
-		this.#needles.push(...addNeedles);
+		// Add only new values to #needles that have a non-reversible layer applied last unless not endWithNonReversibleLayer
+		const addNeedles = filterUniqBy(endWithNonReversibleLayer
+			  ? newEncodings.filter(({needle: {transformers}}) => !transformers[0]!.extractDecode)
+			  : newEncodings, this.#needleChecksums, ({checksum}) => checksum);
+		this.#needles.push(...addNeedles.map(({needle}) => needle));
 		this.#minNeedleLength = Math.min(this.#minNeedleLength,
-			  ...addNeedles.map(({buffer}) => buffer.length));
+			  ...addNeedles.map(({needle: {buffer}}) => buffer.length));
 
 		// Recurse on all newly added encoded values
 		if (maxExtraLayers)
-			await Promise.all(newEncodings.map(needle =>
-				  this.#addEncodings(encoders, endWithNonReversibleLayer, needle, maxExtraLayers - 1)));
+			await Promise.all(newEncodings.map(({needle}) =>
+				  this.#addEncodings(encoders, endWithNonReversibleLayer, needle,
+						maxExtraLayers - 1, addedNeedleChecksums)));
 	}
+}
+
+function checkChecksumLayer<T>(checksums: Map<number /*checksum*/, number /*highest layer*/>, thisLayer: number,
+	  getChecksum: (elem: T) => number,
+): (elem: T) => boolean {
+	return elem => {
+		const checksum  = getChecksum(elem);
+		const prevLayer = checksums.get(checksum);
+		if (prevLayer === undefined || thisLayer > prevLayer) {
+			checksums.set(checksum, thisLayer);
+			return true;
+		}
+		return false;
+	};
 }
 
 interface Needle {
