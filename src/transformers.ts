@@ -478,7 +478,10 @@ export class CompressionTransform implements ValueTransformer {
 	}
 
 	async* extractDecode(value: Buffer): Buffers {
-		if (this.formats.has('gzip') || this.formats.has('deflate')) {
+		// GZIP: https://datatracker.ietf.org/doc/html/rfc1952#page-6
+		// ZLIB: https://datatracker.ietf.org/doc/html/rfc1950#page-5
+		if (this.formats.has('gzip') && value.length > 10 && value.readUInt16BE() === 0x1f8b
+			  || this.formats.has('deflate') && value.length > 2 && value.readUInt16BE() % 31 === 0) {
 			try {
 				yield promisify(zlib.unzip)(value);
 				return;
@@ -487,14 +490,18 @@ export class CompressionTransform implements ValueTransformer {
 			}
 		}
 
-		for (const format of this.formats) {
-			const decompress = ({
-				'deflate-raw': zlib.inflateRaw,
-				'brotli': zlib.brotliDecompress,
-			} as Record<string, (buf: zlib.InputType, callback: zlib.CompressCallback) => void>)[format];
-			if (!decompress) continue;
+		// DEFLATE: https://datatracker.ietf.org/doc/html/rfc1951#page-10
+		// `11` is reserved
+		if (this.formats.has('deflate-raw') && value.length >= 1 && (value[0]! & 0b01100000) !== 0b01100000) {
 			try {
-				yield promisify(decompress)(value);
+				yield promisify(zlib.inflateRaw)(value);
+			} catch {
+				/*ignore*/
+			}
+		}
+		if (this.formats.has('brotli')) {
+			try {
+				yield promisify(zlib.brotliDecompress)(value);
 			} catch {
 				/*ignore*/
 			}
