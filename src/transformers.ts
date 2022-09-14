@@ -492,7 +492,7 @@ export class CompressionTransform implements ValueTransformer {
 
 		// DEFLATE: https://datatracker.ietf.org/doc/html/rfc1951#page-10
 		// `11` is reserved
-		if (this.formats.has('deflate-raw') && value.length >= 1 && (value[0]! & 0b01100000) !== 0b01100000) {
+		if (this.formats.has('deflate-raw') && value.length >= 1 && (value[0]! & 0b110) !== 0b110) {
 			try {
 				yield promisify(zlib.inflateRaw)(value);
 			} catch {
