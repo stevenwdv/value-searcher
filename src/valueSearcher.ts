@@ -117,6 +117,8 @@ export class ValueSearcher {
 		  minEncodedLength: number,
 		  haystackChecksums = new Map<number /*checksum*/, number /*highest layer*/>(),
 	): Promise<ValueTransformer[] | null> {
+		if (haystack.length < minEncodedLength) return null;
+
 		for (const {buffer, transformers} of this.#needles)
 			if (haystack.includes(buffer))
 				return [...transformers];
