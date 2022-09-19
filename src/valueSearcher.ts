@@ -49,7 +49,9 @@ export class ValueSearcher {
 	 * @param value Value to search for
 	 * @param maxEncodeLayers Maximum number of encoder layers with which to recursively encode `value`
 	 * @param encoders Encoders with which to encode `value`, by default the list passed in {@link constructor}
-	 * @param endWithNonReversibleLayer Make sure that the outermost layer used to encode `value` cannot also decode
+	 * @param endWithNonReversibleLayer Make sure that the outermost layer used to encode `value` cannot also decode.
+	 *  In practice, this means ending with a hash layer. Setting this to false lifts the restriction and
+	 *  allows for searching for poorly delimited encoded substrings, e.g. `Hi` (Base64 `SGk=`) in `ASGk=`
 	 */
 	async addValue(
 		  value: Buffer,
