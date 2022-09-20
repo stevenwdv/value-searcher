@@ -248,6 +248,8 @@ export class UriTransform implements ValueTransformer {
 export class CustomStringMapTransform implements ValueTransformer {
 	readonly #revMap: Record<string, string>;
 
+	toString() {return 'custom-string-map' as const;}
+
 	constructor(public readonly map: Record<string, string>) {
 		this.#revMap = {};
 		for (const [from, to] of Object.entries(map))
