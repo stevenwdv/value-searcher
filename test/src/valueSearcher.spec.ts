@@ -162,7 +162,7 @@ describe(ValueSearcher.name, function() {
 	const gzip                         = (b: Buffer) => zlib.gzipSync(b),
 	      deflateRaw                   = (b: Buffer) => zlib.deflateRawSync(b);
 
-	const surrounded = (b: Buffer) => buf(`stuff=${b.toString()}; more=idk`);
+	const surrounded = (b: Buffer) => Buffer.concat([buf('stuff='), b, buf('; more=idk')]);
 	//endregion
 
 	context('constructed test cases', function() {
@@ -212,7 +212,7 @@ describe(ValueSearcher.name, function() {
 		context('without backwards encoding', function() {
 			context('text', () =>
 				  runTestCases(0, 8, textValue, [
-					  [], // direct
+					  [], [surrounded], // direct
 					  // 1 encoding layer
 					  [base64], [hex], [url], [urlForm], [json], [htmlElem], [htmlAttr],
 					  [lzText], [utf16LzText], [base64LzText], [gzip], [deflateRaw],
@@ -239,11 +239,12 @@ describe(ValueSearcher.name, function() {
 				  ]));
 			context('binary', () =>
 				  runTestCases(0, 8, binaryValue, [
-					  [], // direct
+					  [], [surrounded], // direct
 					  // 1 encoding layer
 					  [base64], [hex], [gzip], [deflateRaw],
 
 					  // multiple layers
+					  [deflateRaw, surrounded],
 					  [surrounded, base64, deflateRaw],
 					  [base64LzText, hex, url, base64, gzip],
 					  [base64, lzText, base64, hex],
@@ -254,7 +255,7 @@ describe(ValueSearcher.name, function() {
 		context('with backwards encoding', function() {
 			context('text', () =>
 				  runTestCases(4, 8, textValue, [
-					  [], // direct
+					  [], [surrounded], // direct
 					  // 1 encoding layer
 					  [base64], [hex], [url], [urlForm], [json], [htmlElem], [htmlAttr],
 					  [lzText], [utf16LzText], [base64LzText], [gzip], [deflateRaw],
@@ -280,12 +281,13 @@ describe(ValueSearcher.name, function() {
 				  ]));
 			context('binary', () =>
 				  runTestCases(4, 8, binaryValue, [
-					  [], // direct
+					  [], [surrounded], // direct
 					  // 1 encoding layer
 					  [base64], [hex], [gzip], [deflateRaw],
 					  [hash], // non-reversible
 
 					  // multiple layers
+					  [deflateRaw, surrounded],
 					  [surrounded, base64],
 
 					  // multiple layers ending in non-reversible
