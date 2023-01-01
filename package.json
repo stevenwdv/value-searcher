@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"busboy": "^1.6.0",
-		"crc": "^4.1.1",
+		"crc": "^4.2.0",
 		"html-entities": "^2.3.3",
 		"lz-string": "^1.4.4"
 	},
