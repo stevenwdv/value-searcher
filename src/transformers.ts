@@ -129,24 +129,24 @@ export class Base64Transform implements ValueTransformer {
 		for (const [dialect, regex] of Object.entries(this.#findBase64Regexes))
 			  // Match all possible Base64 strings
 			for (let [match] of str.matchAll(regex)) {
-				if (match!.length < minLength) continue;
+				if (match.length < minLength) continue;
 
 				// Remove any padding, decoding works without it
 				const [, , padding] = dialect;
-				if (padding) match = match!.replaceAll(padding, '');
+				if (padding) match = match.replaceAll(padding, '');
 
 				if (!(dialect.startsWith('+/') || dialect.startsWith('-_'))) {
 					// Replace last digits with regular '+/' and decode
 					const [digit62, digit63] = dialect;
 					const digitMap           = {[digit62!]: '+', [digit63!]: '/'};
-					match                    = match!.replaceAll(
+					match = match.replaceAll(
 						  new RegExp(`[${regExpEscape(digit62! + digit63!)}]`, 'g'),
 						  c => digitMap[c]!);
 				}
 
 				for (let skipChars = 0; skipChars < (this.trySkipFirstChars ? 4 : 1); ++skipChars) {
-					if (skipChars >= match!.length || match!.length - skipChars < minLength) break;
-					let encoded = match!.substring(skipChars);
+					if (skipChars >= match.length || match.length - skipChars < minLength) break;
+					let encoded = match.substring(skipChars);
 
 					// Regular Base64 discards any bits that do not fit inside the rounded down number of bytes
 					// e.g. Buffer.from('/', 'base64').length === 0
@@ -199,7 +199,7 @@ export class HexTransform implements ValueTransformer {
 						        : /\b(?:[a-f0-9]{2})+\b/g
 					      : /\b(?:[A-F0-9]{2})+\b/g;
 		for (const [match] of value.toString().matchAll(hexRegex))
-			if (match!.length >= minLength) yield Buffer.from(match!, 'hex');
+			if (match.length >= minLength) yield Buffer.from(match, 'hex');
 	}
 }
 
@@ -230,9 +230,9 @@ export class UriTransform implements ValueTransformer {
 		const uriComponentRegex = /(?<![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])(?:[a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}-]|%[a-fA-F0-9]{2})+(?![a-zA-Z0-9!$'()*+,.:;@_~\xA0-\u{10FFFD}%-])/ug;
 		for (const [match] of value.toString().matchAll(uriComponentRegex))
 			  // Match should include at least one percent-encoded character or +, otherwise decoding is unnecessary
-			if (match!.length >= minLength && /%[a-fA-F0-9]{2}|\+/.test(match!))
+			if (match.length >= minLength && /%[a-fA-F0-9]{2}|\+/.test(match))
 				try {
-					yield Buffer.from(decodeURIComponent(match!.replaceAll('+', '%20')));
+					yield Buffer.from(decodeURIComponent(match.replaceAll('+', '%20')));
 				} catch (err) {
 					if (err instanceof URIError) {
 						/*ignore*/
@@ -278,8 +278,8 @@ export class JsonStringTransform implements ValueTransformer {
 		// eslint-disable-next-line no-control-regex
 		const jsonStringRegex = /"(?:[^"\\\0-\x1f]|\\(?:["\\/bfnrt]|u[a-fA-F0-9]{4}))*"/g;
 		for (const [match] of value.toString().matchAll(jsonStringRegex))
-			if (match!.length > 2 && match!.length >= minLength)
-				yield Buffer.from(JSON.parse(match!) as string);
+			if (match.length > 2 && match.length >= minLength)
+				yield Buffer.from(JSON.parse(match) as string);
 	}
 }
 
