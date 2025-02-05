@@ -13,7 +13,7 @@ export function regExpEscape(str: string) {
 export function stripIndent(strings: TemplateStringsArray, ...placeholders: unknown[]) {
 	const stringsNoIndent = strings.map(s => s.replaceAll(/([\r\n])[^\S\r\n]+/g, '$1'));
 	stringsNoIndent[0]    = stringsNoIndent[0]!.replace(/^[^\S\r\n]+/, '');
-	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]!) + s);
+	return stringsNoIndent.reduce((acc, s, i) => acc + String(placeholders[i - 1]) + s);
 }
 
 export function raceWithCondition<T>(
@@ -27,6 +27,7 @@ export function raceWithCondition<T>(
 				  const res = await p;
 				  if (await condition(res)) resolve(res);
 			  } catch (err) {
+				  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors
 				  reject(err);
 			  }
 		  })).then(() => resolve(undefined)));

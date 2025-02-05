@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-expressions */ // False positive on e.g. expect(...).to.be.null
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
